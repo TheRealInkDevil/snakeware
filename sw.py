@@ -101,7 +101,7 @@ def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 
 	newproc = {"proc": proc, "name": name, "type": type}
 	subprocs.append(newproc)
-	threading.Thread(target=wait_for_subproc,args=[newproc]).start()
+	threading.Thread(target=wait_for_subproc,args=[newproc], daemon=True).start()
 
 def stop_subprocs(no_escape: bool = True, force: bool = False):
 	exit_procs = True

@@ -33,7 +33,7 @@ def user_write(key: str, value: str):
     swinternal["user_data"]["write"](key, value)
 
 def user_read(key: str):
-    swinternal["user_data"]["read"](key)
+    return swinternal["user_data"]["read"](key)
 
 def start_snakeware_network():
     swinternal["native"]["start_sw_net"]()
