@@ -47,7 +47,7 @@ class NetworkNode:
                 break
             if not self.running_udp:
                 break
-            payload, ver, flags, frag_idx, frag_count, seq_id, crc = split_header(data, self.force_crc32)
+            payload, ver, flags, frag_idx, frag_count, seq_id, crcstatus = split_header(data, self.force_crc32)
             if seq_id in self.ignore_seq_ids:
                 continue
             if flags & FLAGS_ACK_REQUIRED == FLAGS_ACK_REQUIRED:
