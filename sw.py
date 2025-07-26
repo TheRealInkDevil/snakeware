@@ -1,4 +1,4 @@
-import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile
+import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile
 from xml.etree import ElementTree
 
 #define directories
@@ -29,10 +29,10 @@ sbefiles: dict[str, str] = {}
 
 #library
 librarydir: str = os.path.join(maindir, "library")
+pagedir: str = os.path.join(maindir, "pages")
 library_meta = {}
 library: list[dict] = []
 menus: dict[str, ElementTree.ElementTree] = {}
-
 
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
@@ -154,12 +154,22 @@ def run_game(exec: list, origin: str):
 	print("Running game... (if it doesn't work, run the patcher!)")
 	subprocess.run(exec, cwd=origin, shell=True)
 
-def dump_game(gamedir: str, game: dict):
+def dump_game_tar(gamedir: str, game: dict):
 	name = game.get("name", "unknown")
 	print("Dumping " + name + "...")
 	patch_game(gamedir, False)
 	with tarfile.open(name + ".swpkg", "w:gz") as dump:
 		dump.add(gamedir, name, recursive=True)
+	print("Done.")
+
+def dump_game_zip(gamedir: str, game: dict):
+	name = game.get("name", "unknown")
+	print("Dumping " + name + "...")
+	patch_game(gamedir, False)
+	with zipfile.ZipFile(name + ".swpkg", "w") as dump:
+		for root, dirs, files in os.walk(gamedir):
+			for file in files:
+				dump.write(os.path.join(root, file), os.path.join(name, os.path.relpath(os.path.join(root, file), gamedir)))
 	print("Done.")
 
 #save config
@@ -206,34 +216,63 @@ def load_library():
 
 #load menus
 def load_menus() -> None:
-	global librarydir, menus
-	for dirpath, _, filenames in os.walk(librarydir):
+	global pagedir, menus
+	for dirpath, _, filenames in os.walk(pagedir):
 		for filename in filenames:
-			if filename.endswith(".swpage"):
+			if filename.endswith(".swpage") or filename.endswith(".html"):
 				fullfilename = os.path.join(dirpath, filename)
 				tree = ElementTree.parse(fullfilename)
-				menus.update({os.path.splitext(filename)[0]: tree})
+				if filename == "index.html":
+					menus.update({os.path.relpath(dirpath, pagedir): tree})
+				else:
+					menus.update({os.path.relpath(os.path.splitext(fullfilename)[0], pagedir): tree})
 
-def build_menu_array(m: str) -> list[dict]:
-	global username, library
+def get_menu_root(m: str) -> ElementTree.Element:
 	menu = menus.get(m)
-	res: list[dict] = []
 	if not menu:
 		raise FileNotFoundError("no menu")
-	if menu.getroot().tag != "page":
-		raise Exception("not page")
 	
-	for child in menu.getroot():
+	root = menu.getroot()
+	if root.tag == "page":
+		return root
+	elif root.tag == "html":
+		for child in root:
+			if child.tag == "body":
+				return child
+		raise Exception("HTML-SWPAGE: no body")
+	else:
+		raise Exception("not compatible menu")
+
+def build_menu_array(m: str | ElementTree.Element) -> list[dict]:
+	global username, library
+	res: list[dict] = []
+	menu: ElementTree.Element
+	if type(m) is ElementTree.Element:
+		menu = m
+	elif type(m) is str:
+		menu = get_menu_root(m)
+	
+	for child in menu:
 		if child.tag == "sw.library.list":
 			for game in library:
 				element = {"type": "sw.game", "display": game.get("name"), "game": game}
 				res.append(element)
+		elif child.tag == "external":
+			res.extend(build_menu_array(child.attrib.get("module")))
 		elif child.tag in menus:
 			res.extend(build_menu_array(child.tag))
 		else:
-			element = {"type": child.tag, "display": child.text}
-			element.update(child.attrib)
-			res.append(element)
+			if child.text and not child.text.isspace():
+				element = {"type": child.tag, "display": child.text}
+				element.update(child.attrib)
+				res.append(element)
+			child_elements = build_menu_array(child)
+			if not len(child_elements) == 0:
+				res.extend(child_elements)
+			if child.tail and not child.tail.isspace():
+				element = {"type": "sw.element.tail", "display": child.tail}
+				element.update(child.attrib)
+				res.append(element)
 	
 	return res
 
@@ -243,7 +282,7 @@ def execute_menu(menu: list[dict]):
 	finaldisplay: list[str] = []
 
 	choicetypes = [
-		"link",
+		"link", "a",
 		"exit",
 		"sw.game",
 		"sw.game.patch",
@@ -252,7 +291,8 @@ def execute_menu(menu: list[dict]):
 		"sw.library.rebuild",
 		"sw.setup.enter_username",
 		"sw.game.dump",
-		"sw.game.install"
+		"sw.game.install",
+		"sw.sbe.exp.toggle"
 	]
 
 	for item in menu:
@@ -278,6 +318,8 @@ def execute_menu(menu: list[dict]):
 				result = choice.get("goto_page", "")
 			elif choice_type == "link":
 				result = choice.get("target", "")
+			elif choice_type == "a":
+				result = choice.get("href", "")
 			elif choice_type == "exit":
 				sys.exit(0)
 			elif choice_type == "sw.library.rebuild":
@@ -300,14 +342,21 @@ def execute_menu(menu: list[dict]):
 			elif choice_type == "sw.game.install":
 				pth = os.path.normpath(input("Paste the path of your swPKG archive: ")) 
 				if os.path.isfile(pth) and tarfile.is_tarfile(pth):
+					print("Installing...")
 					with tarfile.open(pth, "r:gz") as pkg:
 						pkg.extractall(librarydir, filter="data")
-					build_library()
 					print("Installed.")
+					build_library()
+				elif os.path.isfile(pth) and zipfile.is_zipfile(pth):
+					print("Installing...")
+					with zipfile.ZipFile(pth, "r") as pkg:
+						pkg.extractall(librarydir)
+					print("Installed.")
+					build_library()
 				else:
 					print("error, not good path")
 			elif choice_type == "sw.game.dump":
-				dump_game(choice.get("origin", []), choice.get("game"))
+				dump_game_zip(choice.get("origin", []), choice.get("game"))
 			elif choice_type == "sw.game.patch":
 				print("Patching...")
 				patch_game(choice.get("origin"), choice.get("skip_steamless", True))

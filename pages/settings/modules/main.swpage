@@ -1,0 +1,4 @@
+<page>
+    <external module="settings\modules\user"></external>
+    <external module="settings\modules\library"></external>
+</page>
