@@ -11,6 +11,7 @@ import swpage2
 launch_opt_path = os.path.join(maindir, "launch_option")
 appdir: str = os.path.join(maindir, "app")
 cfgfile: str = os.path.join(maindir, "sw.cfg")
+userfile: str = os.path.join(maindir, "user.json")
 sbedir: str = os.path.join(maindir, "sbe")
 steamlessdir: str = os.path.join(maindir, "steamless")
 steamless: str = os.path.join(steamlessdir, "Steamless.CLI.exe")
@@ -173,7 +174,7 @@ def patch_game(gamedir: str, skip_steamless: bool = True) -> None:
 				if not skip_steamless:
 					#print("Running Steamless...")
 					subprocess.run([steamless, os.path.join(dirpath, filename), "--quiet"], cwd=dirpath, capture_output=True)
-					filename_unpacked = filename + ".unpacked.exe"
+					filename_unpacked = os.path.join(dirpath, filename + ".unpacked.exe")
 					if os.path.exists(filename_unpacked):
 						shutil.move(os.path.join(dirpath, filename_unpacked), os.path.join(dirpath, filename))
 	generate_steam_settings()
@@ -517,7 +518,7 @@ def execute_menu(m: list[dict]):
 			elif choice_type == "sw.update.prep":
 				pth = os.path.normpath(input("Paste the path of your snakeware update: ")) 
 				try:
-					shutil.move(pth, maindir)
+					shutil.copy(pth, maindir)
 				except:
 					print("an error occured preparing update")
 				else:
