@@ -1,10 +1,11 @@
+import pathlib
 from xml.etree import ElementTree
 
 class Page:
-    def __init__(self, name: str, modulename: str, location: str, file: str, tree: ElementTree.ElementTree):
+    def __init__(self, name: str, modulename: str, location: pathlib.Path, file: str, tree: ElementTree.ElementTree):
         self.name = name
         self.modulename = modulename
-        self.location = location
+        self.location = pathlib.Path(location)
         self.file = file
         self.tree = tree
 

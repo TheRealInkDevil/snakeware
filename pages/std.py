@@ -1,3 +1,8 @@
+swinternal = {}
+
+def import_internals(newinternals: dict):
+    swinternal.update(newinternals)
+
 def get_page(ref: bool = False):
     global swinternal
     if ref:
@@ -23,3 +28,11 @@ def cfg_readbool(section: str, key: str):
 
 def cfg_write(section: str, key: str, value: str):
     swinternal["cfg"]["write"](section, key, value)
+
+def native_call(namespace: tuple, *args, **kwargs):
+    native = swinternal.copy()
+    for ns in namespace:
+        native = native.get(ns)
+        if not native:
+            raise ValueError("INVALID NAMESPACE")
+    native(*args, **kwargs)

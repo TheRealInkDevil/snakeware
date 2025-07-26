@@ -1,4 +1,8 @@
+import swpagestd as std # type: ignore
+
 def check_username():
-    global cfg_read, navigate
-    if cfg_read("user", "name"):
-        navigate("oobe\\firstrun\\finish")
+    if std.cfg_read("user", "name"):
+        std.navigate("oobe\\firstrun\\finish")
+
+def write_setup_finished_flag():
+    std.cfg_write("user", "setup-done", "yes")

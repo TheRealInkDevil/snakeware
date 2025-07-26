@@ -1,0 +1,9 @@
+{
+    "id": "snakeware",
+    "name": "snakeware",
+    "version": "2.0",
+    "boot": {
+        "type": "py-inherit",
+        "args": ["sw.py"]
+    }
+}

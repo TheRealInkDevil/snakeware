@@ -1,75 +1,91 @@
 #core imports
-import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile, builtins
+import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile, builtins, types, pathlib
 from xml.etree import ElementTree
 #define core directory
-maindir: str = os.path.split(__file__)[0]
-sys.path.append(maindir)
+maindir: pathlib.Path = pathlib.Path(__file__).parent
+sys.path.append(str(maindir))
 
+#critical imports
 import swpage2
 
 #define other directories
-launch_opt_path = os.path.join(maindir, "launch_option")
-appdir: str = os.path.join(maindir, "app")
-cfgfile: str = os.path.join(maindir, "sw.cfg")
-sbedir: str = os.path.join(maindir, "sbe")
-steamlessdir: str = os.path.join(maindir, "steamless")
-steamless: str = os.path.join(steamlessdir, "Steamless.CLI.exe")
-steamsettingsdir: str = os.path.normpath(os.path.expanduser("~/AppData/Roaming/GSE Saves/settings/"))
-steamsettings: dict[str, str] = {
-	"config.main": os.path.join(steamsettingsdir, "configs.main.ini"),
-	"config.user": os.path.join(steamsettingsdir, "configs.user.ini"),
-	"config.app": os.path.join(steamsettingsdir, "configs.app.ini"),
-	"config.overlay": os.path.join(steamsettingsdir, "configs.overlay.ini"),
+appdir: pathlib.Path = maindir.joinpath("app")
+cfgfile: pathlib.Path = maindir.joinpath("sw.cfg")
+userfile: pathlib.Path = maindir.joinpath("user.json")
+sbedir: pathlib.Path = maindir.joinpath("sbe")
+steamlessdir: pathlib.Path = maindir.joinpath("steamless")
+steamless: pathlib.Path = steamlessdir.joinpath("Steamless.CLI.exe")
+steamsettingsdir: pathlib.Path = pathlib.Path(pathlib.Path.home(), "AppData/Roaming/GSE Saves/settings/")
+steamsettings: dict[str, pathlib.Path] = {
+	"config.main": steamsettingsdir.joinpath("configs.main.ini"),
+	"config.user": steamsettingsdir.joinpath("configs.user.ini"),
+	"config.app": steamsettingsdir.joinpath("configs.app.ini"),
+	"config.overlay": steamsettingsdir.joinpath("configs.overlay.ini"),
 }
-sbeallfiles: dict[str, str] = {
-	"steam_api": os.path.join(sbedir, "regular", "x32", "steam_api.dll"),
-	"steam_api64": os.path.join(sbedir, "regular", "x64", "steam_api64.dll"),
-	"steam_api_experimental": os.path.join(sbedir, "experimental", "x32", "steam_api.dll"),
-	"steam_api64_experimental": os.path.join(sbedir, "experimental", "x64", "steam_api64.dll"),
-	"generate_interfaces": os.path.join(sbedir, "tools", "generate_interfaces", "generate_interfaces_x32.exe"),
-	"generate_interfaces64": os.path.join(sbedir, "tools", "generate_interfaces", "generate_interfaces_x64.exe"),
-	"lobby_connect": os.path.join(sbedir, "tools", "lobby_connect", "lobby_connect_x32.exe"),
-	"lobby_connect64": os.path.join(sbedir, "tools", "lobby_connect", "lobby_connect_x64.exe")
+sbeallfiles: dict[str, pathlib.Path] = {
+	"steam_api": sbedir.joinpath("regular", "x32", "steam_api.dll"),
+	"steam_api64": sbedir.joinpath("regular", "x64", "steam_api64.dll"),
+	"steam_api_experimental": sbedir.joinpath("experimental", "x32", "steam_api.dll"),
+	"steam_api64_experimental": sbedir.joinpath("experimental", "x64", "steam_api64.dll"),
+	"generate_interfaces": sbedir.joinpath("tools", "generate_interfaces", "generate_interfaces_x32.exe"),
+	"generate_interfaces64": sbedir.joinpath("tools", "generate_interfaces", "generate_interfaces_x64.exe"),
+	"lobby_connect": sbedir.joinpath("tools", "lobby_connect", "lobby_connect_x32.exe"),
+	"lobby_connect64": sbedir.joinpath("tools", "lobby_connect", "lobby_connect_x64.exe")
 }
-sbefiles: dict[str, str] = {}
+sbefiles: dict[str, pathlib.Path] = {}
 
 #library and pages/menus
-librarydir: str = os.path.join(maindir, "library")
-pagedir: str = os.path.join(maindir, "pages")
-pagestdpth: str = os.path.join(pagedir, "std.py")
+librarydir: pathlib.Path = maindir.joinpath("library")
+pagedir: pathlib.Path = maindir.joinpath("pages")
+pagestdpth: pathlib.Path = pagedir.joinpath("std.py")
 pagestd = {}
+pagestdmod: types.ModuleType = None
 library_meta = {}
 library: list[dict] = []
 pagemgr: swpage2.PageManager = swpage2.PageManager()
 menus: dict[str, ElementTree.ElementTree] = {}
-menumodules: dict[str, ElementTree.ElementTree] = {}
 launch_option = "quit"
+
+LAUNCHER_NAME = "<none>"
+LAUNCHER_TYPE = "self"
 
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
 
+#try to detect current launcher
+#returns launcher as the following: (type, name, version)
+def detect_launcher():
+	if os.getenv("FASTBOOT_BOOTLOADER_NAME"):
+		return ("fastboot", os.getenv("FASTBOOT_BOOTLOADER_NAME"), os.getenv("FASTBOOT_BOOTLOADER_VERSION"))
+	else:
+		return ("self", "<none>", 0)
+
+def run_fastboot_command(args: list[str], wait: bool = True):
+	arg = [os.getenv("FASTBOOT_PYTHON"), os.getenv("FASTBOOT_SRC")]
+	arg.extend(args)
+	proc = subprocess.Popen(arg)
+	if wait:
+		proc.wait()
+	return proc.returncode
+
 #create blank config
-if not os.path.exists(cfgfile):
+if not cfgfile.exists():
 	open(cfgfile, "x").close()
 
-def clear_launch_option():
-	global launch_opt_path
-	if os.path.exists(launch_opt_path):
-		os.remove(launch_opt_path)
-
-def read_launch_option():
-	global launch_opt_path, launch_option
-	if os.path.exists(launch_opt_path):
-		with open(launch_opt_path) as file:
-			launch_option = file.readline()
+def quit():
+	if LAUNCHER_TYPE == "fastboot":
+		sys.exit(0)
 	else:
-		launch_option = "quit"
+		sys.exit(0)
 
-def write_launch_option(opt: str):
-	global launch_opt_path, launch_option
-	with open(launch_opt_path, "w") as file:
-		file.write(opt)
-		launch_option = opt
+def restart():
+	if LAUNCHER_TYPE == "fastboot":
+		subprocess.Popen([os.getenv("FASTBOOT_PYTHON"), os.getenv("FASTBOOT_SRC")])
+		sys.exit(0)
+	else:
+		subprocess.Popen(sys.orig_argv)
+		sys.exit(0)
+		
 
 #copy dir
 def make_dir_junction(src: str, dst: str) -> None:
@@ -124,7 +140,7 @@ def input_username_setup():
 def generate_steam_settings() -> None:
 	global cfg, steamsettings
 	user = configparser.ConfigParser()
-	if os.path.isfile(steamsettings.get("config.user")):
+	if steamsettings.get("config.user").is_file():
 		user.read(steamsettings.get("config.user"))
 	if not user.has_section("user::general"):
 		user.add_section("user::general")
@@ -132,7 +148,7 @@ def generate_steam_settings() -> None:
 	with open(steamsettings.get("config.user"), "w") as cfgtmp:
 		user.write(cfgtmp)
 	main = configparser.ConfigParser()
-	if os.path.isfile(steamsettings.get("config.main")):
+	if steamsettings.get("config.main").is_file():
 		main.read(steamsettings.get("config.main"))
 	if not main.has_section("main::stats"):
 		main.add_section("main::stats")
@@ -146,7 +162,7 @@ def generate_steam_settings() -> None:
 	with open(steamsettings.get("config.main"), "w") as cfgtmp:
 		main.write(cfgtmp)
 	overlay = configparser.ConfigParser()
-	if os.path.isfile(steamsettings.get("config.overlay")):
+	if steamsettings.get("config.overlay").is_file():
 		overlay.read(steamsettings.get("config.overlay"))
 	if not overlay.has_section("overlay::general"):
 		overlay.add_section("overlay::general")
@@ -156,26 +172,27 @@ def generate_steam_settings() -> None:
 
 #patch games
 #steamless is slow, use option to skip if not needed
-def patch_game(gamedir: str, skip_steamless: bool = True) -> None:
+def patch_game(gamedir: pathlib.Path, skip_steamless: bool = True) -> None:
 	global sbefiles, steamless
+	gamedir = pathlib.Path(gamedir)
 	get_sbefiles()
-	for dirpath, _, filenames in os.walk(gamedir):
+	for dirpath, _, filenames in gamedir.walk():
 		for filename in filenames:
 			if filename == "steam_api.dll":
-				if not filecmp.cmp(os.path.join(dirpath, filename), sbefiles.get("steam_api"), shallow=False):
+				if not filecmp.cmp(dirpath.joinpath(filename), sbefiles.get("steam_api"), shallow=False):
 					#print("Patching steam_api...")
-					shutil.copyfile(sbefiles.get("steam_api"), os.path.join(dirpath, filename))
+					shutil.copyfile(sbefiles.get("steam_api"), dirpath.joinpath(filename))
 			elif filename == "steam_api64.dll":
-				if not filecmp.cmp(os.path.join(dirpath, filename), sbefiles.get("steam_api64"), shallow=False):
+				if not filecmp.cmp(dirpath.joinpath(filename), sbefiles.get("steam_api64"), shallow=False):
 					#print("Patching steam_api64...")
-					shutil.copyfile(sbefiles.get("steam_api64"), os.path.join(dirpath, filename))
+					shutil.copyfile(sbefiles.get("steam_api64"), dirpath.joinpath(filename))
 			elif filename.endswith(".exe"):
 				if not skip_steamless:
 					#print("Running Steamless...")
-					subprocess.run([steamless, os.path.join(dirpath, filename), "--quiet"], cwd=dirpath, capture_output=True)
-					filename_unpacked = filename + ".unpacked.exe"
-					if os.path.exists(filename_unpacked):
-						shutil.move(os.path.join(dirpath, filename_unpacked), os.path.join(dirpath, filename))
+					subprocess.run([steamless, dirpath.joinpath(filename), "--quiet"], cwd=dirpath, capture_output=True)
+					filename_unpacked = dirpath.joinpath(filename + ".unpacked.exe")
+					if filename_unpacked.exists():
+						shutil.move(dirpath.joinpath(filename_unpacked), dirpath.joinpath(filename))
 	generate_steam_settings()
 
 def run_game(exec: list, origin: str):
@@ -192,14 +209,15 @@ def dump_game_tar(gamedir: str, game: dict):
 		dump.add(gamedir, name, recursive=True)
 	print("Done.")
 
-def dump_game_zip(gamedir: str, game: dict):
+def dump_game_zip(gamedir: pathlib.Path, game: dict):
+	gamedir = pathlib.Path(gamedir)
 	name = game.get("name", "unknown")
 	print("Dumping " + name + "...")
 	patch_game(gamedir, False)
 	with zipfile.ZipFile(name + ".swpkg", "w") as dump:
-		for root, dirs, files in os.walk(gamedir):
+		for root, dirs, files in gamedir.walk():
 			for file in files:
-				dump.write(os.path.join(root, file), os.path.join(name, os.path.relpath(os.path.join(root, file), gamedir)))
+				dump.write(root.joinpath(file), pathlib.Path(name, root.joinpath(file).relative_to(gamedir)))
 	print("Done.")
 
 #save config
@@ -215,15 +233,15 @@ def save_config() -> None:
 def build_library(verbose: bool = False) -> None:
 	global library, librarydir
 	library.clear()
-	for dirpath, _, filenames in os.walk(librarydir):
+	for dirpath, _, filenames in librarydir.walk():
 		if dirpath == librarydir:
 			continue
 		for filename in filenames:
 			if filename.endswith(".swgame"):
-				filename = os.path.join(dirpath, filename)
+				filename = dirpath.joinpath(filename)
 				with open(filename) as file:
 					game: dict = json.load(file)
-					game.update({"origin": dirpath})
+					game.update({"origin": str(dirpath)})
 					library.append(game)
 					if verbose:
 						print("Added " + game.get("name"))
@@ -231,14 +249,14 @@ def build_library(verbose: bool = False) -> None:
 
 def dump_library():
 	global library_meta, library, librarydir
-	lib_dump = os.path.join(librarydir, "library.db")
+	lib_dump = librarydir.joinpath("library.db")
 	library_meta.update({"library": library})
 	with open(lib_dump, "w") as file:
 		json.dump(library_meta, file)
 
 def load_library():
 	global library_meta, library, librarydir
-	lib_dump = os.path.join(librarydir, "library.cache")
+	lib_dump = librarydir.joinpath("library.db")
 	with open(lib_dump, "r") as file:
 		library_meta = json.load(file)
 	library = library_meta.get("library")
@@ -246,33 +264,35 @@ def load_library():
 		library = []
 
 def compile_pagestd():
-	global pagestd, pagestdpth
+	global pagestd, pagestdpth, pagestdmod
 	try:
 		with open(pagestdpth) as file:
 			pagestdcode = compile(file.read(), pagestdpth, "exec")
 			exec(pagestdcode, pagestd)
+			pagestdmod = types.ModuleType("swpagestd")
+			for key, value in pagestd.items():
+				setattr(pagestdmod, key, value)
+			sys.modules["swpagestd"] = pagestdmod
 	except:
 		print("SWPAGE Standard Library could not be compiled!")
 		raise
 
 #load menus
 def load_menus() -> None:
-	global pagedir, menus, menumodules, pagemgr
-	for dirpath, _, filenames in os.walk(pagedir):
+	global pagedir, menus, pagemgr
+	for dirpath, _, filenames in pagedir.walk():
 		for filename in filenames:
 			if filename.endswith(".swpage") or filename.endswith(".html"):
-				fullfilename = os.path.join(dirpath, filename)
+				fullfilename = dirpath.joinpath(filename)
 				tree = ElementTree.parse(fullfilename)
 				if filename == "index.html":
-					pth = os.path.relpath(dirpath, pagedir)
+					pth = dirpath.relative_to(pagedir)
 					menus.update({pth: tree})
-					pagemgr.add(swpage2.Page(pth, pth, dirpath, fullfilename, tree))
+					pagemgr.add(swpage2.Page(str(pth), str(pth.with_suffix("")), dirpath, str(fullfilename), tree))
 				else:
-					pth = os.path.relpath(fullfilename, pagedir)
+					pth = fullfilename.relative_to(pagedir)
 					menus.update({pth: tree})
-					pagemgr.add(swpage2.Page(pth, os.path.splitext(pth)[0], dirpath, fullfilename, tree))
-					if True or fullfilename.endswith(".swpage"):
-						menumodules.update({os.path.splitext(pth)[0]: tree})
+					pagemgr.add(swpage2.Page(str(pth), str(pth.with_suffix("")), dirpath, str(fullfilename), tree))
 
 def get_menu_root(m: str | ElementTree.ElementTree) -> ElementTree.Element:
 	global pagemgr
@@ -298,7 +318,9 @@ def build_menu_array(m, parentpage: swpage2.Page = None) -> list[dict]:
 	global username, library, pagedir, pagemgr
 	res: list[dict] = []
 
+	#detect input type
 	if type(m) is str:
+		#resolve menu name
 		if m in pagemgr.by_name:
 			page = pagemgr.by_name[m]
 		elif m in pagemgr.by_modulename:
@@ -312,12 +334,13 @@ def build_menu_array(m, parentpage: swpage2.Page = None) -> list[dict]:
 		if child.tag == "script":
 			element = {"type": "script"}
 			if child.attrib.get("type") == "python":
+				#include script
 				if "src" in child.attrib:
 					try:
-						if os.path.isfile(os.path.normpath(os.path.join(page.location, child.attrib.get("src")))):
-							filepath = os.path.normpath(os.path.join(page.location, child.attrib.get("src")))
+						if page.location.joinpath(child.attrib.get("src")).is_file():
+							filepath = page.location.joinpath(child.attrib.get("src"))
 						else:
-							filepath = os.path.normpath(os.path.join(pagedir, child.attrib.get("src")))
+							filepath = pagedir.joinpath(child.attrib.get("src"))
 						with open(filepath) as f:
 							element.update({"script": compile(f.read(), filepath, "exec")})
 						res.append(element)
@@ -328,16 +351,19 @@ def build_menu_array(m, parentpage: swpage2.Page = None) -> list[dict]:
 					element = {"type": "script", "script": child.text}
 					res.append(element)
 		elif child.tag == "sw.library.list":
+			#build library display
 			for game in library:
 				element = {"type": "sw.game", "display": game.get("name"), "game": game}
 				res.append(element)
 		elif child.tag == "external":
+			#include external element
 			mod = child.attrib.get("module")
 			if pagemgr.by_modulename.get(mod) is not None:
 				res.extend(build_menu_array(mod, page))
 			else:
 				res.append({"type": "sw.element.error", "display": "This element could not be loaded."})
 		else:
+			#recursively get child elements
 			if child.text and not child.text.isspace():
 				element = {"type": child.tag, "display": child.text}
 				element.update(child.attrib)
@@ -359,20 +385,20 @@ def execute_menu(m: list[dict]):
 	menu: list[dict] = m.copy()
 
 	choicetypes = [
-		"link", "a",
-		"button",
-		"exit",
-		"restart",
-		"sw.game",
-		"sw.game.patch",
-		"sw.game.run",
-		"sw.game.remove",
-		"sw.library.rebuild",
-		"sw.setup.enter_username",
-		"sw.game.dump",
-		"sw.game.install",
-		"sw.sbe.exp.toggle",
-		"sw.update.prep"
+		"link", "a", #link to another page
+		"button", #actionable button
+		"exit", #exit
+		"restart", #restart
+		"sw.game", #game element
+		"sw.game.patch", #run patcher for game
+		"sw.game.run", #run game
+		"sw.game.remove", #delete game
+		"sw.library.rebuild", #rebuild library
+		"sw.setup.enter_username", #enter uname
+		"sw.game.dump", #dump game
+		"sw.game.install", #install game
+		"sw.sbe.exp.toggle", #toggle sbe exp mode
+		"sw.update.prep" #install update
 	]
 	
 	script_context_globals = {"__builtins__": builtins}
@@ -381,7 +407,7 @@ def execute_menu(m: list[dict]):
 		return get_page_ref().copy()
 	
 	def get_page_ref():
-		build_display()
+		build_menu_display()
 		return menu
 	
 	def navigate(m: str | list[dict]):
@@ -389,7 +415,7 @@ def execute_menu(m: list[dict]):
 			menu = build_menu_array(m)
 		elif type(m) is list:
 			menu = m
-		build_display(menu)
+		build_menu_display(menu)
 
 	def cfg_write(section: str, key: str, value):
 		global cfg
@@ -427,7 +453,7 @@ def execute_menu(m: list[dict]):
 		except:
 			return None
 
-	def build_display(m: list[dict] = None):
+	def build_menu_display(m: list[dict] = None):
 		choices.clear()
 		finaldisplay.clear()
 		if m:
@@ -455,12 +481,11 @@ def execute_menu(m: list[dict]):
 				display = item.get("display", "")
 				if display:
 					finaldisplay.append(display)
-
 	
 	script_context_globals = {"__builtins__": builtins}
 	internalstd = {
 		"swpage" : {
-			"build_display": build_display,
+			"build_display": build_menu_display,
 			"get_page": get_page,
 			"get_page_ref": get_page_ref,
 			"navigate": navigate,
@@ -478,13 +503,11 @@ def execute_menu(m: list[dict]):
 		}
 	}
 
-	pagestd.update({"swinternal": internalstd})
-
 	script_context_globals.update({"__builtins__": builtins})
-	script_context_globals.update({"swinternal": internalstd})
-	script_context_globals.update(pagestd)
+	pagestdmod.import_internals(internalstd)
+	#script_context_globals.update({"swinternal": internalstd})
 	
-	build_display()
+	build_menu_display()
 
 	if len(choices) > 0:
 		while True:
@@ -509,20 +532,42 @@ def execute_menu(m: list[dict]):
 			elif choice_type == "a":
 				result = choice.get("href", "")
 			elif choice_type == "exit":
-				write_launch_option("quit")
+				quit()
 				sys.exit(0)
 			elif choice_type == "restart":
-				write_launch_option("run")
+				restart()
 				sys.exit(0)
 			elif choice_type == "sw.update.prep":
-				pth = os.path.normpath(input("Paste the path of your snakeware update: ")) 
+				updpath = pathlib.Path(input("Paste the path of your snakeware update: "))
 				try:
-					shutil.move(pth, maindir)
+					if LAUNCHER_TYPE == "fastboot":
+						print("Checking update...")
+						if updpath.is_file() and updpath.suffix == ".swupd":
+							if zipfile.is_zipfile(updpath):
+								with zipfile.ZipFile(updpath, "r") as upd:
+									print("Installing update...\nDO NOT CLOSE/INTERUPT")
+									upd.extractall(maindir)
+							elif tarfile.is_tarfile(updpath):
+								with zipfile.ZipFile(updpath, "r") as upd:
+									print("Installing update...\nDO NOT CLOSE/INTERUPT)")
+									upd.extractall(maindir, filter="data")
+							else:
+								print("file provided is not an update")
+							print("Installing bootfile(s)...\nDO NOT CLOSE/INTERUPT)")
+							for dir in maindir.iterdir():
+								if dir.endswith(".fastboot"):
+									run_fastboot_command(["-Io", maindir.joinpath(dir)])
+							os.remove(updpath)
+						else:
+							print("file provided is not an update")
+					elif LAUNCHER_TYPE == "legacy":
+						shutil.copy(updpath, maindir)
+					else:
+						print("Your launcher/launch method does not support updates.")
 				except:
-					print("an error occured preparing update")
+					print("an error occured updating")
 				else:
-					write_launch_option("run")
-					sys.exit(0)
+					restart()
 			elif choice_type == "sw.library.rebuild":
 				print("Rebuilding library database...")
 				build_library()
@@ -541,16 +586,16 @@ def execute_menu(m: list[dict]):
 			elif choice_type == "sw.game.run":
 				run_game(choice.get("exec", []), choice.get("origin"))
 			elif choice_type == "sw.game.install":
-				pth = os.path.normpath(input("Paste the path of your swPKG archive: ")) 
-				if os.path.isfile(pth) and tarfile.is_tarfile(pth):
+				updpath = pathlib.Path(input("Paste the path of your swPKG archive: ")) 
+				if updpath.is_file() and tarfile.is_tarfile(updpath):
 					print("Installing...")
-					with tarfile.open(pth, "r:gz") as pkg:
+					with tarfile.open(updpath, "r:gz") as pkg:
 						pkg.extractall(librarydir, filter="data")
 					print("Installed.")
 					build_library()
-				elif os.path.isfile(pth) and zipfile.is_zipfile(pth):
+				elif updpath.is_file() and zipfile.is_zipfile(updpath):
 					print("Installing...")
-					with zipfile.ZipFile(pth, "r") as pkg:
+					with zipfile.ZipFile(updpath, "r") as pkg:
 						pkg.extractall(librarydir)
 					print("Installed.")
 					build_library()
@@ -584,34 +629,10 @@ def execute_menu(m: list[dict]):
 				return result
 	else:
 		print("\n".join(finaldisplay))
-
+		
 #get config
 cfg: configparser.ConfigParser = configparser.ConfigParser()
 cfg.read(cfgfile)
-
-"""
-	OLD setup (obsolete because hardcoding is LAME)
-if not cfg.getboolean("user", "setup-done", fallback=False):
-	print("Welcome to Snakeware!")
-	print("Let's get you setup.")
-	if not cfg.has_section("user"):
-		cfg.add_section("user")
-
-	uname = input_username_setup()
-
-	cfg.set("user", "name", uname)
-	username = uname
-
-	cfg.set("user", "setup-done", "yes")
-
-	if not cfg.has_section("sbe"):
-		cfg.add_section("sbe")
-	cfg.set("sbe", "exp", "no")
-
-	save_config()
-
-"""
-compile_pagestd()
 
 #get username for session
 username = "Guest"
@@ -623,6 +644,8 @@ except:
 	pass
 
 print("Loading...")
+
+compile_pagestd()
 
 #load useful things
 try:
@@ -647,7 +670,7 @@ try:
 		elif type(menu_result) is list:
 			current_menu = menu_result
 except KeyboardInterrupt:
-	write_launch_option("quit")
+	quit()
 	raise
 except Exception as e:
 	print("A fatal error has occured, and Snakeware has stopped.")
@@ -655,9 +678,8 @@ except Exception as e:
 	print(e)
 	res = input("[R]estart or [S]hutdown? > ").lower()
 	if res == "raise":
-		clear_launch_option()
 		raise
 	elif res.startswith("r"):
-		write_launch_option("run")
+		restart()
 	else:
-		write_launch_option("quit")
+		quit()
