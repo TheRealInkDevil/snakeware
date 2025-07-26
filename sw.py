@@ -48,10 +48,13 @@ launch_option = "quit"
 
 LAUNCHER_NAME = "<none>"
 LAUNCHER_TYPE = "self"
+LAUNCHER_VER = "<none>"
 
 subprocs: list[dict] = []
-online_friends: dict[uuid.UUID, dict] = {}
-friends_list: dict[uuid.UUID, dict] = {}
+online_friends: dict[dict, str] = {}
+friends_list: list[dict] = {}
+online_status = "Online"
+status_playing = []
 
 sw_network_send = queue.Queue()
 sw_network_recv = queue.Queue()
@@ -80,10 +83,20 @@ def run_fastboot_command(args: list[str], wait: bool = True):
 if not cfgfile.exists():
 	open(cfgfile, "x").close()
 
+def update_online_status():
+	global online_status, status_playing
+	online_status = f"Playing {status_playing[0]}" if status_playing else "Online"
+
 def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 	def wait_for_subproc(p: dict):
 		pr = p.get("proc")
+		if p.get("type") == "game":
+			status_playing.append(p.get("name"))
+			update_online_status()
 		pr.wait()
+		if p.get("type") == "game":
+			status_playing.remove(p.get("name"))
+			update_online_status()
 		subprocs.remove(p)
 
 	newproc = {"proc": proc, "name": name, "type": type}
@@ -91,22 +104,24 @@ def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 	threading.Thread(target=wait_for_subproc,args=[newproc]).start()
 
 def stop_subprocs(no_escape: bool = True, force: bool = False):
+	exit_procs = True
 	if not force:
 		if len(subprocs) > 0:
 			if no_escape:
-				print("Some processes are still running!\nTo minimize data loss, please exit the processes before force quitting")
+				print("Some processes are still running!\nTo minimize data loss and lingering processes, please exit the processes before force quitting.")
 				input("Press enter to force quit processes > ")
 				exit_procs = True
 			else:
-				print("Some processes are still running!\nWould you like to force quit the processes? (y/N)")
+				print("Some processes are still running!\nTo minimize data loss and lingering processes, please exit the processes before force quitting.\nWould you like to force quit anyway? (y/N)")
 				exit_procs = input().lower().startswith("y")
 		else:
 			return True
 	else:
 		exit_procs = True
 	if exit_procs:
-		for proc in subprocs:
-			proc.get("proc").terminate()
+		for proc in subprocs.copy():
+			print(f"Trying to kill {proc.get('name')}...\n(if it lingers you will have to kill it yourself!)")
+			proc.get("proc").kill()
 	return exit_procs
 
 def quit():
@@ -232,11 +247,12 @@ def patch_game(gamedir: pathlib.Path, skip_steamless: bool = True) -> None:
 	generate_steam_settings()
 
 def run_game(exec: list, origin: str, name: str):
+	print("Preparing " + name + "...")
 	patch_game(origin)
 	generate_steam_settings()
-	print("Running game... (if it doesn't work, run the patcher!)")
+	print(f"Running {name}... (if it doesn't work, run the patcher!)")
 	with open(pathlib.Path(origin, "stdout.log"), "w") as stdoutfile:
-		reg_subproc(subprocess.Popen(exec, cwd=origin, shell=True, stdout=stdoutfile), name, "game")
+		reg_subproc(subprocess.Popen(exec, cwd=origin, stdout=stdoutfile, shell=True), name, "game")
 
 def dump_game_tar(gamedir: str, game: dict):
 	name = game.get("name", "unknown")
@@ -270,18 +286,18 @@ def save_config() -> None:
 def build_library(verbose: bool = False) -> None:
 	global library, librarydir
 	library.clear()
-	for dirpath, _, filenames in librarydir.walk():
-		if dirpath == librarydir:
-			continue
-		for filename in filenames:
-			if filename.endswith(".swgame"):
-				filename = dirpath.joinpath(filename)
-				with open(filename) as file:
-					game: dict = json.load(file)
-					game.update({"origin": str(dirpath)})
-					library.append(game)
-					if verbose:
-						print("Added " + game.get("name"))
+	for dirpath in librarydir.iterdir():
+		if dirpath.is_dir():
+			for filename in dirpath.iterdir():
+				if filename.is_file():
+					if filename.suffix == ".swgame" or filename.name == ".swgame":
+						filename = dirpath.joinpath(filename)
+						with open(filename) as file:
+							game: dict = json.load(file)
+							game.update({"origin": str(dirpath)})
+							library.append(game)
+							if verbose:
+								print("Added " + game.get("name"))
 	dump_library()
 
 def dump_library():
@@ -393,6 +409,18 @@ def build_menu_array(m, parentpage: swpage2.Page = None) -> list[dict]:
 			for game in library:
 				element = {"type": "sw.game", "display": game.get("name"), "game": game}
 				res.append(element)
+		elif child.tag == "sw.friends.list":
+			#build friends display
+			if len(friends_list) < 1:
+				element = {"type": "sw.friend", "display": "No friends. :("}
+				res.append(element)
+			for friend in friends_list:
+				if friend in online_friends:
+					element = {"type": "sw.friend", "display": friends_list[friend].get("name") + ": " + online_friends[friend].get("status")}
+					res.append(element)
+				else:
+					element = {"type": "sw.friend", "frienduuid": friend, "frienddata": friends_list.get(friend), "display": friends_list[friend].get("name") + ": Offline"}
+					res.append(element)
 		elif child.tag == "external":
 			#include external element
 			mod = child.attrib.get("module")
@@ -438,6 +466,9 @@ def execute_menu(m: list[dict]):
 		"sw.sbe.exp.toggle", #toggle sbe exp mode
 		"sw.update.prep", #install update
 		"sw.net.togglefunc", #toggle swnet
+		"sw.friend", #friend
+		"sw.friend.add", #add friend
+		"sw.friend.remove", #remove friend
 	]
 	
 	script_context_globals = {"__builtins__": builtins}
@@ -591,17 +622,17 @@ def execute_menu(m: list[dict]):
 			elif choice_type == "a":
 				result = choice.get("href", "")
 			elif choice_type == "exit":
-				if stop_subprocs(False):
+				if stop_subprocs(True):
 					quit()
 					sys.exit(0)
 			elif choice_type == "restart":
-				if stop_subprocs(False):
+				if stop_subprocs(True):
 					restart()
 					sys.exit(0)
 			elif choice_type == "sw.update.prep":
 				updpath = pathlib.Path(input("Paste the path of your snakeware update: "))
 				try:
-					if LAUNCHER_TYPE == "fastboot":
+					if LAUNCHER_TYPE == "fastboot" or LAUNCHER_TYPE == "self":
 						print("Checking update...")
 						if updpath.is_file() and updpath.suffix == ".swupd":
 							if zipfile.is_zipfile(updpath):
@@ -609,15 +640,16 @@ def execute_menu(m: list[dict]):
 									print("Installing update...\nDO NOT CLOSE/INTERUPT")
 									upd.extractall(maindir)
 							elif tarfile.is_tarfile(updpath):
-								with zipfile.ZipFile(updpath, "r") as upd:
+								with tarfile.open(updpath, "r") as upd:
 									print("Installing update...\nDO NOT CLOSE/INTERUPT)")
 									upd.extractall(maindir, filter="data")
 							else:
 								print("file provided is not an update")
-							print("Installing bootfile(s)...\nDO NOT CLOSE/INTERUPT)")
-							for dir in maindir.iterdir():
-								if dir.endswith(".fastboot"):
-									run_fastboot_command(["-Io", maindir.joinpath(dir)])
+							if LAUNCHER_TYPE == "fastboot":
+								print("Installing bootfile(s)...\nDO NOT CLOSE/INTERUPT)")
+								for dir in maindir.iterdir():
+									if dir.suffix == ".fastboot":
+										run_fastboot_command(["-Io", maindir.joinpath(dir)])
 							os.remove(updpath)
 						else:
 							print("file provided is not an update")
@@ -631,7 +663,7 @@ def execute_menu(m: list[dict]):
 					restart()
 			elif choice_type == "sw.library.rebuild":
 				print("Rebuilding library database...")
-				build_library()
+				build_library(True)
 			elif choice_type == "sw.game":
 				game: dict = choice.get("game")
 				if not game:
@@ -644,6 +676,32 @@ def execute_menu(m: list[dict]):
 					{"type": "sw.game.remove", "display": "Uninstall", "origin": game.get("origin")},
 					{"type": "link", "display": "Back to Library", "target": "library"}
 				]
+			elif choice_type == "sw.friend":
+				friend_uuid: uuid.UUID = choice.get("frienduuid")
+				friend: dict = choice.get("frienddata")
+				if not friend:
+					print("Whoops! Something went wrong!")
+				result = [
+					{"type": "txt", "display": friend.get("name")},
+				]
+				if not friends_list.get(friend_uuid):
+					result.append({"type": "sw.friend.add", "display": "Add Friend", "frienddata": friend, "friendid": friend_uuid})
+				else:
+					result.append({"type": "sw.friend.remove", "display": "Remove Friend", "friendid": friend_uuid})
+				result.append({"type": "link", "display": "Back to Friends", "target": "friendslist"})
+			elif choice_type == "sw.friend.add":
+				result = "friendslist"
+				friend_uuid: uuid.UUID = choice.get("friendid")
+				friend: dict = choice.get("frienddata")
+				friends_list.update({friend_uuid: friend})
+				print("Friend added!")
+				save_friends(friends_list)
+			elif choice_type == "sw.friend.remove":
+				result = "friendslist"
+				friend_uuid: uuid.UUID = choice.get("friendid")
+				friends_list.pop(friend_uuid)
+				print("Friend removed.")
+				save_friends(friends_list)
 			elif choice_type == "sw.game.run":
 				runthing = True
 				for proc in subprocs:
@@ -714,36 +772,47 @@ def get_userdata(src: pathlib.Path):
 		return {}
 
 def save_userdata(src: pathlib.Path, userdat: dict):
-		with open(src, "w") as srcfile:
-			return json.dump(userdat, srcfile)
+	with open(src, "w") as srcfile:
+		return json.dump(userdat, srcfile)
 
-def process_friends(udata: dict):
+def get_friend_from_uid(uid: str | uuid.UUID):
+	uid = str(uid)
+	for friend in friends_list:
+		if friend.get("uid") == uid:
+			return friend
+	return None
+
+def save_friends(udata: dict):
 	global friends_list
-	friends_list.clear()
-	friends = udata.get("friends", [])
-	for friend in friends:
-		try:
-			uid = uuid.UUID(friend.get("uid"))
-		except:
-			continue
-		friends_list.update({uid: friend})
+	udata.update({"friends": friends_list})
 
 def process_sw_net_msg(msgdata: sw_network.MessageData):
 	data = msgdata.data
 	is_udp = msgdata.conn_id == "*UDP*"
 	match data.get("cmd"):
 		case "friends.heartbeat.ping":
-			if uuid.UUID(data.get("sender")) in friends_list and is_udp:
-					sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr}, True, False))
+			frienduid = uuid.UUID(data.get("sender"))
+			friend = get_friend_from_uid(frienduid)
+			if friend in friends_list and is_udp:
+				if friend not in online_friends:
+					online_friends.update({friend: data.get("status", "Online")})
+				sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr, "status": online_status}, True, False))
 		case "friends.heartbeat.pong":
-			if uuid.UUID(data.get("sender")) in friends_list and is_udp:
-					frienduid = uuid.UUID(data.get("sender"))
-					if frienduid not in online_friends:
-						online_friends.update({frienduid: friends_list.get(frienduid)})
+			frienduid = uuid.UUID(data.get("sender"))
+			friend = get_friend_from_uid(frienduid)
+			if friend in friends_list and is_udp:
+				if friend not in online_friends:
+					online_friends.update({friend: data.get("status", "Online")})
+		case "friends.status.update":
+			frienduid = uuid.UUID(data.get("sender"))
+			friend = get_friend_from_uid(frienduid)
+			if friend in friends_list:
+				if friend in online_friends:
+					online_friends.update({friend: data.get("status")})
 
 def process_sw_net_queue(recv: queue.Queue):
 	while not recv.empty():
-		cmd = recv.get()
+		cmd: dict = recv.get()
 		match cmd.get("type"):
 			case "recv-msg":
 				try:
@@ -773,7 +842,7 @@ def run_sw_net():
 			ticks += 1
 			if ticks % 2 == 1:
 				online_friends.clear()
-			sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.ping", userdata.get("uid"), {}, True, True))
+			sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.ping", userdata.get("uid"), {"status": online_status}, True, True))
 		except Exception as e:
 			sw_net_running = False
 			print("An error occured with Snakeware Network.")
@@ -785,6 +854,11 @@ def run_sw_net():
 		
 
 if __name__ == "__main__":
+	print("Starting Snakeware 2.3...")
+	LAUNCHER_TYPE, LAUNCHER_NAME, LAUNCHER_VER = detect_launcher()
+	if LAUNCHER_TYPE != "self":
+		print(f"Running with {LAUNCHER_NAME}v{LAUNCHER_VER} ({LAUNCHER_TYPE})")
+
 	#get config
 	cfg: configparser.ConfigParser = configparser.ConfigParser()
 	cfg.read(cfgfile)
@@ -806,7 +880,7 @@ if __name__ == "__main__":
 		friends_list = userdata.get("friends", [])
 		udatready = True
 
-	print("Loading Snakeware 2.1...")
+	print("Loading...")
 
 	compile_pagestd()
 
@@ -814,7 +888,13 @@ if __name__ == "__main__":
 	try:
 		load_library()
 	except:
+		if cfg.getboolean("sys", "library-built", fallback=False):
+			print("Library missing, rebuilding...")
 		build_library()
+		if not cfg.has_section("sys"):
+			cfg.add_section("sys")
+		cfg.set("sys", "library-built", "yes")
+		save_config()
 
 	get_sbefiles()
 	load_menus()
@@ -839,6 +919,7 @@ if __name__ == "__main__":
 			elif type(menu_result) is list:
 				current_menu = menu_result
 	except KeyboardInterrupt:
+		print("Interrupted.")
 		quit()
 		raise
 	except Exception as e:
