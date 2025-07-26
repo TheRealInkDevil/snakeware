@@ -29,6 +29,15 @@ def cfg_readbool(section: str, key: str):
 def cfg_write(section: str, key: str, value: str):
     swinternal["cfg"]["write"](section, key, value)
 
+def user_write(key: str, value: str):
+    swinternal["user_data"]["write"](key, value)
+
+def user_read(key: str):
+    swinternal["user_data"]["read"](key)
+
+def start_snakeware_network():
+    swinternal["native"]["start_sw_net"]()
+
 def native_call(namespace: tuple, *args, **kwargs):
     native = swinternal.copy()
     for ns in namespace:

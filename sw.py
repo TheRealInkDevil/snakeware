@@ -1,12 +1,12 @@
 #core imports
-import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile, builtins, types, pathlib
+import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile, builtins, types, pathlib, threading, uuid, queue, time
 from xml.etree import ElementTree
 #define core directory
 maindir: pathlib.Path = pathlib.Path(__file__).parent
 sys.path.append(str(maindir))
 
 #critical imports
-import swpage2
+import swpage2, sw_network
 
 #define other directories
 appdir: pathlib.Path = maindir.joinpath("app")
@@ -49,8 +49,16 @@ launch_option = "quit"
 LAUNCHER_NAME = "<none>"
 LAUNCHER_TYPE = "self"
 
+subprocs: list[dict] = []
+online_friends: dict[uuid.UUID, dict] = {}
+friends_list: dict[uuid.UUID, dict] = {}
+
+sw_network_send = queue.Queue()
+sw_network_recv = queue.Queue()
+
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
+
 
 #try to detect current launcher
 #returns launcher as the following: (type, name, version)
@@ -72,6 +80,35 @@ def run_fastboot_command(args: list[str], wait: bool = True):
 if not cfgfile.exists():
 	open(cfgfile, "x").close()
 
+def reg_subproc(proc: subprocess.Popen, name: str, type: str):
+	def wait_for_subproc(p: dict):
+		pr = p.get("proc")
+		pr.wait()
+		subprocs.remove(p)
+
+	newproc = {"proc": proc, "name": name, "type": type}
+	subprocs.append(newproc)
+	threading.Thread(target=wait_for_subproc,args=[newproc]).start()
+
+def stop_subprocs(no_escape: bool = True, force: bool = False):
+	if not force:
+		if len(subprocs) > 0:
+			if no_escape:
+				print("Some processes are still running!\nTo minimize data loss, please exit the processes before force quitting")
+				input("Press enter to force quit processes > ")
+				exit_procs = True
+			else:
+				print("Some processes are still running!\nWould you like to force quit the processes? (y/N)")
+				exit_procs = input().lower().startswith("y")
+		else:
+			return True
+	else:
+		exit_procs = True
+	if exit_procs:
+		for proc in subprocs:
+			proc.get("proc").terminate()
+	return exit_procs
+
 def quit():
 	if LAUNCHER_TYPE == "fastboot":
 		sys.exit(0)
@@ -85,7 +122,6 @@ def restart():
 	else:
 		subprocess.Popen(sys.orig_argv)
 		sys.exit(0)
-		
 
 #copy dir
 def make_dir_junction(src: str, dst: str) -> None:
@@ -138,13 +174,13 @@ def input_username_setup():
 
 #gen settings for games
 def generate_steam_settings() -> None:
-	global cfg, steamsettings
+	global cfg, steamsettings, username
 	user = configparser.ConfigParser()
 	if steamsettings.get("config.user").is_file():
 		user.read(steamsettings.get("config.user"))
 	if not user.has_section("user::general"):
 		user.add_section("user::general")
-	user.set("user::general", "account_name", cfg.get("user", "name"))
+	user.set("user::general", "account_name", username)
 	with open(steamsettings.get("config.user"), "w") as cfgtmp:
 		user.write(cfgtmp)
 	main = configparser.ConfigParser()
@@ -195,11 +231,12 @@ def patch_game(gamedir: pathlib.Path, skip_steamless: bool = True) -> None:
 						shutil.move(dirpath.joinpath(filename_unpacked), dirpath.joinpath(filename))
 	generate_steam_settings()
 
-def run_game(exec: list, origin: str):
+def run_game(exec: list, origin: str, name: str):
 	patch_game(origin)
 	generate_steam_settings()
 	print("Running game... (if it doesn't work, run the patcher!)")
-	subprocess.run(exec, cwd=origin, shell=True)
+	with open(pathlib.Path(origin, "stdout.log"), "w") as stdoutfile:
+		reg_subproc(subprocess.Popen(exec, cwd=origin, shell=True, stdout=stdoutfile), name, "game")
 
 def dump_game_tar(gamedir: str, game: dict):
 	name = game.get("name", "unknown")
@@ -273,6 +310,7 @@ def compile_pagestd():
 			for key, value in pagestd.items():
 				setattr(pagestdmod, key, value)
 			sys.modules["swpagestd"] = pagestdmod
+			sys.modules["std"] = pagestdmod
 	except:
 		print("SWPAGE Standard Library could not be compiled!")
 		raise
@@ -398,7 +436,8 @@ def execute_menu(m: list[dict]):
 		"sw.game.dump", #dump game
 		"sw.game.install", #install game
 		"sw.sbe.exp.toggle", #toggle sbe exp mode
-		"sw.update.prep" #install update
+		"sw.update.prep", #install update
+		"sw.net.togglefunc", #toggle swnet
 	]
 	
 	script_context_globals = {"__builtins__": builtins}
@@ -453,6 +492,15 @@ def execute_menu(m: list[dict]):
 		except:
 			return None
 
+	def user_data_write(key: str, value):
+		global userdata, save_userdata, userfile
+		userdata.update({key: value})
+		save_userdata(userfile, userdata)
+
+	def user_data_read(key: str):
+		global userdata
+		return userdata.get(key)
+
 	def build_menu_display(m: list[dict] = None):
 		choices.clear()
 		finaldisplay.clear()
@@ -482,6 +530,12 @@ def execute_menu(m: list[dict]):
 				if display:
 					finaldisplay.append(display)
 	
+	def start_sw_network():
+		global sw_net_running
+		if not sw_net_running:
+			threading.Thread(target=run_sw_net, daemon=True).start()
+
+
 	script_context_globals = {"__builtins__": builtins}
 	internalstd = {
 		"swpage" : {
@@ -492,7 +546,8 @@ def execute_menu(m: list[dict]):
 		},
 		"native": {
 			"build_menus": load_menus,
-			"rebuild_library": build_library
+			"rebuild_library": build_library,
+			"start_sw_net": start_sw_network
 		},
 		"cfg": {
 			"write": cfg_write,
@@ -500,6 +555,10 @@ def execute_menu(m: list[dict]):
 			"readbool": cfg_readbool,
 			"readfloat": cfg_readfloat,
 			"readint": cfg_readint
+		},
+		"user_data": {
+			"write": user_data_write,
+			"read": user_data_read
 		}
 	}
 
@@ -532,11 +591,13 @@ def execute_menu(m: list[dict]):
 			elif choice_type == "a":
 				result = choice.get("href", "")
 			elif choice_type == "exit":
-				quit()
-				sys.exit(0)
+				if stop_subprocs(False):
+					quit()
+					sys.exit(0)
 			elif choice_type == "restart":
-				restart()
-				sys.exit(0)
+				if stop_subprocs(False):
+					restart()
+					sys.exit(0)
 			elif choice_type == "sw.update.prep":
 				updpath = pathlib.Path(input("Paste the path of your snakeware update: "))
 				try:
@@ -577,14 +638,21 @@ def execute_menu(m: list[dict]):
 					print("Whoops! Something went wrong!")
 				result = [
 					{"type": "txt", "display": choice.get("display", "<undef>")},
-					{"type": "sw.game.run", "display": "Play", "exec": game.get("exec", []), "origin": game.get("origin")},
+					{"type": "sw.game.run", "display": "Play", "exec": game.get("exec", []), "origin": game.get("origin"), "game": game},
 					{"type": "sw.game.patch", "display": "Run Patcher", "origin": game.get("origin"), "skip_steamless": False},
 					{"type": "sw.game.dump", "display": "Dump files", "origin": game.get("origin"), "game": game},
 					{"type": "sw.game.remove", "display": "Uninstall", "origin": game.get("origin")},
 					{"type": "link", "display": "Back to Library", "target": "library"}
 				]
 			elif choice_type == "sw.game.run":
-				run_game(choice.get("exec", []), choice.get("origin"))
+				runthing = True
+				for proc in subprocs:
+					if proc.get("name") == choice.get("game").get("name") and proc.get("type") == "game":
+						runthing = False
+						print("Game is already running!")
+						break
+				if runthing:
+					run_game(choice.get("exec", []), choice.get("origin"), choice.get("game").get("name"))
 			elif choice_type == "sw.game.install":
 				updpath = pathlib.Path(input("Paste the path of your swPKG archive: ")) 
 				if updpath.is_file() and tarfile.is_tarfile(updpath):
@@ -608,8 +676,10 @@ def execute_menu(m: list[dict]):
 				patch_game(choice.get("origin"), choice.get("skip_steamless", True))
 				print("Done!")
 			elif choice_type == "sw.setup.enter_username":
-				global username
+				global username, userdata, userfile
 				username = input_username_setup()
+				userdata.update({"name": username})
+				save_userdata(userfile, userdata)
 				save_config()
 			elif choice_type == "sw.game.remove":
 				print("Uninstalling...")
@@ -617,6 +687,12 @@ def execute_menu(m: list[dict]):
 				print("Uninstalled!")
 				build_library()
 				result = "library"
+			elif choice_type == "sw.net.togglefunc":
+				global sw_net_running
+				if sw_net_running:
+					sw_net_running = False
+				else:
+					threading.Thread(target=run_sw_net, daemon=True).start()
 
 			if "onclick" in choice:
 				try:
@@ -629,57 +705,150 @@ def execute_menu(m: list[dict]):
 				return result
 	else:
 		print("\n".join(finaldisplay))
+
+def get_userdata(src: pathlib.Path):
+	try:
+		with open(src) as srcfile:
+			return json.load(srcfile)
+	except:
+		return {}
+
+def save_userdata(src: pathlib.Path, userdat: dict):
+		with open(src, "w") as srcfile:
+			return json.dump(userdat, srcfile)
+
+def process_friends(udata: dict):
+	global friends_list
+	friends_list.clear()
+	friends = udata.get("friends", [])
+	for friend in friends:
+		try:
+			uid = uuid.UUID(friend.get("uid"))
+		except:
+			continue
+		friends_list.update({uid: friend})
+
+def process_sw_net_msg(msgdata: sw_network.MessageData):
+	data = msgdata.data
+	is_udp = msgdata.conn_id == "*UDP*"
+	match data.get("cmd"):
+		case "friends.heartbeat.ping":
+			if uuid.UUID(data.get("sender")) in friends_list and is_udp:
+					sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr}, True, False))
+		case "friends.heartbeat.pong":
+			if uuid.UUID(data.get("sender")) in friends_list and is_udp:
+					frienduid = uuid.UUID(data.get("sender"))
+					if frienduid not in online_friends:
+						online_friends.update({frienduid: friends_list.get(frienduid)})
+
+def process_sw_net_queue(recv: queue.Queue):
+	while not recv.empty():
+		cmd = recv.get()
+		match cmd.get("type"):
+			case "recv-msg":
+				try:
+					process_sw_net_msg(cmd.get("data"))
+				except:
+					continue
+		recv.task_done()
+
+sw_net_running = False
+sw_net_thread_active = False
+
+def run_sw_net():
+	global sw_net_running, sw_net_thread_active
+	if sw_net_thread_active:
+		return
+	print("Connecting to Snakeware Network...")
+	threading.Thread(target=sw_network.run_sw_network_node, args=[sw_network_send, sw_network_recv], daemon=True).start()
+	online_friends.clear()
+	ticks = -1
+	sw_net_running = True
+	sw_net_thread_active = True
+	while sw_net_running:
+		try:
+			time.sleep(30)
+			if not sw_net_running:
+				break
+			ticks += 1
+			if ticks % 2 == 1:
+				online_friends.clear()
+			sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.ping", userdata.get("uid"), {}, True, True))
+		except Exception as e:
+			sw_net_running = False
+			print("An error occured with Snakeware Network.")
+			print(type(e).__name__)
+			print(e)
+			break
+	sw_net_running = False
+	sw_net_thread_active = False
 		
-#get config
-cfg: configparser.ConfigParser = configparser.ConfigParser()
-cfg.read(cfgfile)
 
-#get username for session
-username = "Guest"
-try:
-	username = cfg.get("user", "name")
-	generate_steam_settings()
-	print("Welcome " + username + "!")
-except:
-	pass
+if __name__ == "__main__":
+	#get config
+	cfg: configparser.ConfigParser = configparser.ConfigParser()
+	cfg.read(cfgfile)
 
-print("Loading...")
+	userdata = get_userdata(userfile)
+	udatready = False
 
-compile_pagestd()
-
-#load useful things
-try:
-	load_library()
-except:
-	build_library()
-
-get_sbefiles()
-load_menus()
-
-try:
-	current_menu = None
-	if not cfg.getboolean("user", "setup-done", fallback=False):
-		current_menu = build_menu_array("oobe\\firstrun")
+	#get username for session
+	username = userdata.get("name")
+	if not username:
+		try:
+			username = cfg.get("user", "name")
+			generate_steam_settings()
+			print("Welcome " + username + "!")
+		except:
+			pass
 	else:
-		current_menu = build_menu_array("home")
+		print("Welcome " + username + "!")
+		friends_list = userdata.get("friends", [])
+		udatready = True
 
-	while True:
-		menu_result = execute_menu(current_menu)
-		if type(menu_result) is str:
-			current_menu = build_menu_array(menu_result)
-		elif type(menu_result) is list:
-			current_menu = menu_result
-except KeyboardInterrupt:
-	quit()
-	raise
-except Exception as e:
-	print("A fatal error has occured, and Snakeware has stopped.")
-	print("Error code: " + type(e).__name__)
-	print(e)
-	res = input("[R]estart or [S]hutdown? > ").lower()
-	if res == "raise":
-		raise
-	elif res.startswith("r"):
-		restart()
-	else:
+	print("Loading Snakeware 2.1...")
+
+	compile_pagestd()
+
+	#load useful things
+	try:
+		load_library()
+	except:
+		build_library()
+
+	get_sbefiles()
+	load_menus()
+
+	if udatready and userdata.get("sw_network_enabled", False):
+		threading.Thread(target=run_sw_net, daemon=True).start()
+
+	try:
+		current_menu = None
+		if not cfg.getboolean("user", "setup-done", fallback=False):
+			current_menu = build_menu_array("oobe\\firstrun")
+		elif cfg.getboolean("user", "setup-done", fallback=False) and not udatready:
+			current_menu = build_menu_array("oobe\\migrate")
+		else:
+			current_menu = build_menu_array("home")
+
+		while True:
+			process_sw_net_queue(sw_network_recv)
+			menu_result = execute_menu(current_menu)
+			if type(menu_result) is str:
+				current_menu = build_menu_array(menu_result)
+			elif type(menu_result) is list:
+				current_menu = menu_result
+	except KeyboardInterrupt:
 		quit()
+		raise
+	except Exception as e:
+		print("A fatal error has occured, and Snakeware has stopped.")
+		print("Error code: " + type(e).__name__)
+		print(e)
+		res = input("[R]estart or [S]hutdown? > ").lower()
+		if res == "raise":
+			raise
+		elif res.startswith("r"):
+			restart()
+		else:
+			quit()
