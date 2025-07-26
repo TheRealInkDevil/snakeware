@@ -4,6 +4,7 @@ from xml.etree import ElementTree
 
 #define directories
 maindir: str = os.path.split(__file__)[0]
+launch_opt_path = os.path.join(maindir, "launch_option")
 appdir: str = os.path.join(maindir, "app")
 cfgfile: str = os.path.join(maindir, "sw.cfg")
 sbedir: str = os.path.join(maindir, "sbe")
@@ -35,6 +36,7 @@ library_meta = {}
 library: list[dict] = []
 menus: dict[str, ElementTree.ElementTree] = {}
 menumodules: dict[str, ElementTree.ElementTree] = {}
+launch_option = "quit"
 
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
@@ -45,6 +47,25 @@ sys.path.append(maindir)
 #create blank config
 if not os.path.exists(cfgfile):
 	open(cfgfile, "x").close()
+
+def clear_launch_option():
+	global launch_opt_path
+	if os.path.exists(launch_opt_path):
+		os.remove(launch_opt_path)
+
+def read_launch_option():
+	global launch_opt_path, launch_option
+	if os.path.exists(launch_opt_path):
+		with open(launch_opt_path) as file:
+			launch_option = file.readline()
+	else:
+		launch_option = "quit"
+
+def write_launch_option(opt: str):
+	global launch_opt_path, launch_option
+	with open(launch_opt_path, "w") as file:
+		file.write(opt)
+		launch_option = opt
 
 #copy dir
 def make_dir_junction(src: str, dst: str) -> None:
@@ -291,6 +312,7 @@ def execute_menu(menu: list[dict]):
 	choicetypes = [
 		"link", "a",
 		"exit",
+		"restart",
 		"sw.game",
 		"sw.game.patch",
 		"sw.game.run",
@@ -299,7 +321,8 @@ def execute_menu(menu: list[dict]):
 		"sw.setup.enter_username",
 		"sw.game.dump",
 		"sw.game.install",
-		"sw.sbe.exp.toggle"
+		"sw.sbe.exp.toggle",
+		"sw.update.prep"
 	]
 
 	for item in menu:
@@ -328,7 +351,20 @@ def execute_menu(menu: list[dict]):
 			elif choice_type == "a":
 				result = choice.get("href", "")
 			elif choice_type == "exit":
+				write_launch_option("quit")
 				sys.exit(0)
+			elif choice_type == "restart":
+				write_launch_option("run")
+				sys.exit(0)
+			elif choice_type == "":
+				pth = os.path.normpath(input("Paste the path of your snakeware update: ")) 
+				try:
+					shutil.move(pth, maindir)
+				except:
+					print("an error occured preparing update")
+				else:
+					write_launch_option("run")
+					sys.exit(0)
 			elif choice_type == "sw.library.rebuild":
 				print("Rebuilding library database...")
 				build_library()
