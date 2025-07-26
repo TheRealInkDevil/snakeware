@@ -299,7 +299,7 @@ def execute_menu(menu: list[dict]):
 		item_type = item.get("type")
 		if item_type in choicetypes:
 			choices.append(item)
-			finaldisplay.append(f"[{len(choices)}]: {item.get("display", "<undef>")}")
+			finaldisplay.append(f'[{len(choices)}]: {item.get("display", "<undef>")}')
 		else:
 			display = item.get("display", "")
 			if display:
@@ -390,6 +390,7 @@ if not cfg.getboolean("user", "setup-done", fallback=False):
 	uname = input_username_setup()
 
 	cfg.set("user", "name", uname)
+	username = uname
 
 	cfg.set("user", "setup-done", "yes")
 
