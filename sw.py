@@ -1,3 +1,4 @@
+#core imports
 import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile
 from xml.etree import ElementTree
 
@@ -33,9 +34,13 @@ pagedir: str = os.path.join(maindir, "pages")
 library_meta = {}
 library: list[dict] = []
 menus: dict[str, ElementTree.ElementTree] = {}
+menumodules: dict[str, ElementTree.ElementTree] = {}
 
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
+
+#critical imports
+sys.path.append(maindir)
 
 #create blank config
 if not os.path.exists(cfgfile):
@@ -216,7 +221,7 @@ def load_library():
 
 #load menus
 def load_menus() -> None:
-	global pagedir, menus
+	global pagedir, menus, menumodules
 	for dirpath, _, filenames in os.walk(pagedir):
 		for filename in filenames:
 			if filename.endswith(".swpage") or filename.endswith(".html"):
@@ -225,10 +230,12 @@ def load_menus() -> None:
 				if filename == "index.html":
 					menus.update({os.path.relpath(dirpath, pagedir): tree})
 				else:
-					menus.update({os.path.relpath(os.path.splitext(fullfilename)[0], pagedir): tree})
+					menus.update({os.path.relpath(fullfilename, pagedir): tree})
+					if filename.endswith(".swpage"):
+						menumodules.update({os.path.relpath(os.path.splitext(fullfilename)[0], pagedir): tree})
 
-def get_menu_root(m: str) -> ElementTree.Element:
-	menu = menus.get(m)
+def get_menu_root(m: str, menudict: dict[str, ElementTree.ElementTree] = menus) -> ElementTree.Element:
+	menu = menudict.get(m)
 	if not menu:
 		raise FileNotFoundError("no menu")
 	
@@ -243,14 +250,14 @@ def get_menu_root(m: str) -> ElementTree.Element:
 	else:
 		raise Exception("not compatible menu")
 
-def build_menu_array(m: str | ElementTree.Element) -> list[dict]:
+def build_menu_array(m: str | ElementTree.Element, menudict: dict[str, ElementTree.ElementTree] = menus) -> list[dict]:
 	global username, library
 	res: list[dict] = []
 	menu: ElementTree.Element
 	if type(m) is ElementTree.Element:
 		menu = m
 	elif type(m) is str:
-		menu = get_menu_root(m)
+		menu = get_menu_root(m, menudict)
 	
 	for child in menu:
 		if child.tag == "sw.library.list":
@@ -258,7 +265,7 @@ def build_menu_array(m: str | ElementTree.Element) -> list[dict]:
 				element = {"type": "sw.game", "display": game.get("name"), "game": game}
 				res.append(element)
 		elif child.tag == "external":
-			res.extend(build_menu_array(child.attrib.get("module")))
+			res.extend(build_menu_array(child.attrib.get("module"), menumodules))
 		elif child.tag in menus:
 			res.extend(build_menu_array(child.tag))
 		else:
@@ -369,6 +376,7 @@ def execute_menu(menu: list[dict]):
 				print("Uninstalling...")
 				shutil.rmtree(choice.get("origin"))
 				print("Uninstalled!")
+				build_library()
 				result = "library"
 			else:
 				print("unknown error occured, sorry!")
