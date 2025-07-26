@@ -650,7 +650,6 @@ def execute_menu(m: list[dict]):
 								for dir in maindir.iterdir():
 									if dir.suffix == ".fastboot":
 										run_fastboot_command(["-Io", maindir.joinpath(dir)])
-							os.remove(updpath)
 						else:
 							print("file provided is not an update")
 					elif LAUNCHER_TYPE == "legacy":
