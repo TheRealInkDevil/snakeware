@@ -278,7 +278,8 @@ def save_config() -> None:
 	global cfg, cfgfile, username
 	if not cfg.has_section("user"):
 		cfg.add_section("user")
-	cfg.set("user", "name", username)
+	if username:
+		cfg.set("user", "name", username)
 	with open(cfgfile, "w") as cfgtmp:
 		cfg.write(cfgtmp)
 
