@@ -82,21 +82,15 @@ def parse_header(data: bytes):
 def split_header(data: bytes, force_crc32: bool = False):
     header = data[0:HEADER_SIZE]
 
-    magic, ver, flags, frag_idx, frag_count, seq_id, payload_len, crc, reserved = struct.unpack(HEADER_FORMAT, header)
-    if magic != MAGIC_NUMBER:
-        raise ValueError("Magic Number is invalid")
-    if ver > PROTOCOL_VERSION:
-        raise ValueError("Unsupported protocol version!")
-    if frag_count > 1 and flags & FLAGS_FRAGMENTED != FLAGS_FRAGMENTED:
-        raise ValueError("Fragmented message has no fragmented flag!")
-    if frag_idx < 0 or frag_idx >= frag_count:
-        raise ValueError("Fragment Idx is invalid!")
-    if payload_len < 0:
-        raise ValueError("Payload Length invalid!")
+    ver, flags, frag_idx, frag_count, seq_id, payload_len, crc = parse_header(header)
     
     payload = data[(HEADER_SIZE):(HEADER_SIZE+payload_len)]
-    if flags & FLAGS_CHK == FLAGS_CHK or force_crc32:
+    crcstatus = False
+    if flags & FLAGS_CHK or force_crc32:
         if zlib.crc32(payload) != crc:
-            raise ValueError("CRC32 invalid!")
+            if force_crc32:
+                raise ValueError("CRC32 invalid!")
+        else:
+            crcstatus = True
     
-    return (payload, ver, flags, frag_idx, frag_count, seq_id, crc)
+    return (payload, ver, flags, frag_idx, frag_count, seq_id, crcstatus)

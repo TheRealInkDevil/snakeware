@@ -51,8 +51,8 @@ LAUNCHER_TYPE = "self"
 LAUNCHER_VER = "<none>"
 
 subprocs: list[dict] = []
-online_friends: dict[dict, str] = {}
-friends_list: list[dict] = {}
+online_friends: dict[str, str] = {}
+friends_list: dict[str, dict] = {}
 online_status = "Online"
 status_playing = []
 
@@ -101,7 +101,7 @@ def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 
 	newproc = {"proc": proc, "name": name, "type": type}
 	subprocs.append(newproc)
-	threading.Thread(target=wait_for_subproc,args=[newproc]).start()
+	threading.Thread(target=wait_for_subproc,args=[newproc], daemon=True).start()
 
 def stop_subprocs(no_escape: bool = True, force: bool = False):
 	exit_procs = True
@@ -651,7 +651,6 @@ def execute_menu(m: list[dict]):
 								for dir in maindir.iterdir():
 									if dir.suffix == ".fastboot":
 										run_fastboot_command(["-Io", maindir.joinpath(dir)])
-							os.remove(updpath)
 						else:
 							print("file provided is not an update")
 					elif LAUNCHER_TYPE == "legacy":
@@ -692,14 +691,14 @@ def execute_menu(m: list[dict]):
 				result.append({"type": "link", "display": "Back to Friends", "target": "friendslist"})
 			elif choice_type == "sw.friend.add":
 				result = "friendslist"
-				friend_uuid: uuid.UUID = choice.get("friendid")
+				friend_uuid = str(choice.get("friendid"))
 				friend: dict = choice.get("frienddata")
 				friends_list.update({friend_uuid: friend})
 				print("Friend added!")
 				save_friends(friends_list)
 			elif choice_type == "sw.friend.remove":
 				result = "friendslist"
-				friend_uuid: uuid.UUID = choice.get("friendid")
+				friend_uuid = str(choice.get("friendid"))
 				friends_list.pop(friend_uuid)
 				print("Friend removed.")
 				save_friends(friends_list)
@@ -778,7 +777,10 @@ def save_userdata(src: pathlib.Path, userdat: dict):
 
 def get_friend_from_uid(uid: str | uuid.UUID):
 	uid = str(uid)
-	for friend in friends_list:
+	if uid in friends_list:
+		return friends_list[uid]
+	for friendid in friends_list:
+		friend = friends_list[friendid]
 		if friend.get("uid") == uid:
 			return friend
 	return None
@@ -792,24 +794,23 @@ def process_sw_net_msg(msgdata: sw_network.MessageData):
 	is_udp = msgdata.conn_id == "*UDP*"
 	match data.get("cmd"):
 		case "friends.heartbeat.ping":
-			frienduid = uuid.UUID(data.get("sender"))
-			friend = get_friend_from_uid(frienduid)
-			if friend in friends_list and is_udp:
-				if friend not in online_friends:
-					online_friends.update({friend: data.get("status", "Online")})
-				sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr, "status": online_status}, True, False))
+			if is_udp:
+				frienduid = data.get("sender")
+				friend = get_friend_from_uid(frienduid)
+				if frienduid in friends_list:
+					online_friends.update({frienduid: data.get("status", "Online")})
+					sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr, "status": online_status}, True, False))
 		case "friends.heartbeat.pong":
-			frienduid = uuid.UUID(data.get("sender"))
-			friend = get_friend_from_uid(frienduid)
-			if friend in friends_list and is_udp:
-				if friend not in online_friends:
-					online_friends.update({friend: data.get("status", "Online")})
+			if is_udp:
+				frienduid = data.get("sender")
+				friend = get_friend_from_uid(frienduid)
+				if frienduid in friends_list:
+					online_friends.update({frienduid: data.get("status", "Online")})
 		case "friends.status.update":
-			frienduid = uuid.UUID(data.get("sender"))
+			frienduid = data.get("sender")
 			friend = get_friend_from_uid(frienduid)
-			if friend in friends_list:
-				if friend in online_friends:
-					online_friends.update({friend: data.get("status")})
+			if frienduid in friends_list:
+				online_friends.update({frienduid: data.get("status", "Online")})
 
 def process_sw_net_queue(recv: queue.Queue):
 	while not recv.empty():
@@ -832,16 +833,16 @@ def run_sw_net():
 	print("Connecting to Snakeware Network...")
 	threading.Thread(target=sw_network.run_sw_network_node, args=[sw_network_send, sw_network_recv], daemon=True).start()
 	online_friends.clear()
-	ticks = -1
+	ticks = 0
 	sw_net_running = True
 	sw_net_thread_active = True
 	while sw_net_running:
 		try:
-			time.sleep(30)
 			if not sw_net_running:
 				break
 			ticks += 1
-			if ticks % 2 == 1:
+			ticks %= 30
+			if ticks % 4 == 0:
 				online_friends.clear()
 			sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.ping", userdata.get("uid"), {"status": online_status}, True, True))
 		except Exception as e:
@@ -850,6 +851,7 @@ def run_sw_net():
 			print(type(e).__name__)
 			print(e)
 			break
+		time.sleep(5)
 	sw_net_running = False
 	sw_net_thread_active = False
 		
