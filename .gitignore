@@ -1,6 +1,7 @@
 /python
 /sbe
 /steamless
+/library
 **/__pycache__
 sw.cfg
 user.json
