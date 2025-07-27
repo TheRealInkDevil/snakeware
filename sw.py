@@ -359,7 +359,8 @@ def execute_menu(menu: list[dict]):
 			elif choice_type == "":
 				pth = os.path.normpath(input("Paste the path of your snakeware update: ")) 
 				try:
-					shutil.move(pth, maindir)
+					if os.path.splitext(pth)[1] == ".swupd" and os.path.isfile(pth) and (tarfile.is_tarfile(pth) or zipfile.is_zipfile(pth)):
+						shutil.copy(pth, maindir)
 				except:
 					print("an error occured preparing update")
 				else:
