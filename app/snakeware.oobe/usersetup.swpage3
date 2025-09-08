@@ -1,0 +1,8 @@
+<Page>
+    <VBox>
+        <Header text="User Setup"/>
+        <Label text="Now let's setup your Snakeware User."/>
+        <TextBox text="Set Username" prompt="Enter Username:" update_event="username_entered"/>
+        <SwUserContinue/>
+    </VBox>
+</Page>

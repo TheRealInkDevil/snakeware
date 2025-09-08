@@ -1,0 +1,8 @@
+<Page>
+    <VBox>
+        <Header text="Home"/>
+        <SwitchAppButton text="Library" app="snakeware.gamelibrary" />
+        <SwitchAppButton text="Settings" app="snakeware.config"/>
+        <QuitButton text="Quit"/>
+    </VBox>
+</Page>

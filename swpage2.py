@@ -8,6 +8,7 @@ class Page:
         self.location = pathlib.Path(location)
         self.file = file
         self.tree = tree
+        self.warn = True
 
 class PageManager:
     def __init__(self):

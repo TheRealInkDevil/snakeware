@@ -1,12 +1,18 @@
 #core imports
-import sys, os, subprocess, json, configparser, random, filecmp, shutil, tarfile, zipfile, builtins, types, pathlib, threading, uuid, queue, time
+import sys, os, subprocess, threading
+import filecmp, shutil, tarfile, zipfile, pathlib
+import json, configparser, random, types
+import importlib, importlib.util
+
 from xml.etree import ElementTree
 #define core directory
 maindir: pathlib.Path = pathlib.Path(__file__).parent
+if __name__ == "__main__":
+	os.chdir(maindir)
 sys.path.append(str(maindir))
 
 #critical imports
-import swpage2, sw_network
+import swpage3, swapp
 
 #define other directories
 appdir: pathlib.Path = maindir.joinpath("app")
@@ -34,34 +40,30 @@ sbeallfiles: dict[str, pathlib.Path] = {
 }
 sbefiles: dict[str, pathlib.Path] = {}
 
-#library and pages/menus
+#library and pages/menus (OBSOLETE)
 librarydir: pathlib.Path = maindir.joinpath("library")
-pagedir: pathlib.Path = maindir.joinpath("pages")
-pagestdpth: pathlib.Path = pagedir.joinpath("std.py")
-pagestd = {}
-pagestdmod: types.ModuleType = None
-library_meta = {}
-library: list[dict] = []
-pagemgr: swpage2.PageManager = swpage2.PageManager()
-menus: dict[str, ElementTree.ElementTree] = {}
-launch_option = "quit"
+#library_meta = {}
+#library: list[dict] = []
+#launch_option = "quit"
 
 LAUNCHER_NAME = "<none>"
 LAUNCHER_TYPE = "self"
 LAUNCHER_VER = "<none>"
 
 subprocs: list[dict] = []
-online_friends: dict[str, str] = {}
-friends_list: dict[str, dict] = {}
-online_status = "Online"
-status_playing = []
-
-sw_network_send = queue.Queue()
-sw_network_recv = queue.Queue()
 
 os.makedirs(librarydir, exist_ok=True)
 os.makedirs(steamsettingsdir, exist_ok=True)
 
+class SwResult:
+	def __init__(self, success: bool, result_code: str, return_value = None, exception: Exception = None):
+		self.success = success or False
+		self.result_code = result_code
+		self.return_value = return_value
+		self.exception = exception
+	
+	def __bool__(self):
+		return self.success
 
 #try to detect current launcher
 #returns launcher as the following: (type, name, version)
@@ -83,20 +85,10 @@ def run_fastboot_command(args: list[str], wait: bool = True):
 if not cfgfile.exists():
 	open(cfgfile, "x").close()
 
-def update_online_status():
-	global online_status, status_playing
-	online_status = f"Playing {status_playing[0]}" if status_playing else "Online"
-
 def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 	def wait_for_subproc(p: dict):
 		pr = p.get("proc")
-		if p.get("type") == "game":
-			status_playing.append(p.get("name"))
-			update_online_status()
 		pr.wait()
-		if p.get("type") == "game":
-			status_playing.remove(p.get("name"))
-			update_online_status()
 		subprocs.remove(p)
 
 	newproc = {"proc": proc, "name": name, "type": type}
@@ -186,6 +178,52 @@ def input_username_setup():
 			print("Your final username: " + uname)
 			break
 	return uname
+
+#Library Functions ported from Snakeware APIs 1.0.0
+
+library_meta = {}
+
+def get_library() -> list:
+	return library_meta.get("library", [])
+
+def get_library_meta() -> list:
+	return library_meta
+
+def build_library(librarydir: pathlib.Path) -> None:
+	library_meta.setdefault("library", [])
+	get_library().clear()
+	for dirpath in librarydir.iterdir():
+		if dirpath.is_dir():
+			for filename in dirpath.iterdir():
+				if filename.is_file():
+					if filename.suffix == ".swgame" or filename.name == ".swgame":
+						filename = dirpath.joinpath(filename)
+						with open(filename) as file:
+							game: dict = json.load(file)
+							if "id" not in game:
+								game.update({"id", game.get("name")})
+							if "name" not in game:
+								game.update({"name", game.get("id")})
+							if game.get("id"):
+								game.update({"origin": str(dirpath)})
+								get_library().append(game)
+	dump_library(librarydir)
+
+def dump_library(librarydir: pathlib.Path):
+	library_meta.update({"origin": str(librarydir)})
+	lib_dump = librarydir.joinpath("library.db")
+	with open(lib_dump, "w") as file:
+		json.dump(library_meta, file)
+
+def load_library(librarydir: pathlib.Path):
+	library_meta.clear()
+	lib_dump = librarydir.joinpath("library.db")
+	try:
+		with open(lib_dump, "r") as file:
+			library_meta.update(json.load(file))
+			library_meta.update({"origin": str(librarydir)})
+	except:
+		pass
 
 #gen settings for games
 def generate_steam_settings() -> None:
@@ -283,581 +321,248 @@ def save_config() -> None:
 	with open(cfgfile, "w") as cfgtmp:
 		cfg.write(cfgtmp)
 
-#build da library
-def build_library(verbose: bool = False) -> None:
-	global library, librarydir
-	library.clear()
-	for dirpath in librarydir.iterdir():
-		if dirpath.is_dir():
-			for filename in dirpath.iterdir():
-				if filename.is_file():
-					if filename.suffix == ".swgame" or filename.name == ".swgame":
-						filename = dirpath.joinpath(filename)
-						with open(filename) as file:
-							game: dict = json.load(file)
-							game.update({"origin": str(dirpath)})
-							library.append(game)
-							if verbose:
-								print("Added " + game.get("name"))
-	dump_library()
+SWAPP_SDK_CURRENT_VERSION = 1
 
-def dump_library():
-	global library_meta, library, librarydir
-	lib_dump = librarydir.joinpath("library.db")
-	library_meta.update({"library": library})
-	with open(lib_dump, "w") as file:
-		json.dump(library_meta, file)
-
-def load_library():
-	global library_meta, library, librarydir
-	lib_dump = librarydir.joinpath("library.db")
-	with open(lib_dump, "r") as file:
-		library_meta = json.load(file)
-	library = library_meta.get("library")
-	if not library:
-		library = []
-
-def compile_pagestd():
-	global pagestd, pagestdpth, pagestdmod
-	try:
-		with open(pagestdpth) as file:
-			pagestdcode = compile(file.read(), pagestdpth, "exec")
-			exec(pagestdcode, pagestd)
-			pagestdmod = types.ModuleType("swpagestd")
-			for key, value in pagestd.items():
-				setattr(pagestdmod, key, value)
-			sys.modules["swpagestd"] = pagestdmod
-			sys.modules["std"] = pagestdmod
-	except:
-		print("SWPAGE Standard Library could not be compiled!")
-		raise
-
-#load menus
-def load_menus() -> None:
-	global pagedir, menus, pagemgr
-	for dirpath, _, filenames in pagedir.walk():
-		for filename in filenames:
-			if filename.endswith(".swpage") or filename.endswith(".html"):
-				fullfilename = dirpath.joinpath(filename)
-				tree = ElementTree.parse(fullfilename)
-				if filename == "index.html":
-					pth = dirpath.relative_to(pagedir)
-					menus.update({pth: tree})
-					pagemgr.add(swpage2.Page(str(pth), str(pth.with_suffix("")), dirpath, str(fullfilename), tree))
-				else:
-					pth = fullfilename.relative_to(pagedir)
-					menus.update({pth: tree})
-					pagemgr.add(swpage2.Page(str(pth), str(pth.with_suffix("")), dirpath, str(fullfilename), tree))
-
-def get_menu_root(m: str | ElementTree.ElementTree) -> ElementTree.Element:
-	global pagemgr
-	if type(m) is str:
-		menu = pagemgr.by_modulename.get(m).tree
-		if not menu:
-			raise FileNotFoundError("no menu")
-	else:
-		menu = m
-	
-	root = menu.getroot()
-	if root.tag == "page":
-		return root
-	elif root.tag == "html":
-		for child in root:
-			if child.tag == "body":
-				return root
-		raise Exception("HTML-SWPAGE: no body")
-	else:
-		raise Exception("not compatible menu")
-	
-def build_menu_array(m, parentpage: swpage2.Page = None) -> list[dict]:
-	global username, library, pagedir, pagemgr
-	res: list[dict] = []
-
-	#detect input type
-	if type(m) is str:
-		#resolve menu name
-		if m in pagemgr.by_name:
-			page = pagemgr.by_name[m]
-		elif m in pagemgr.by_modulename:
-			page = pagemgr.by_modulename[m]
-		menu = page.tree.getroot()
-	elif type(m) is ElementTree.Element:
-		page = parentpage
-		menu = m
-	
-	for child in menu:
-		if child.tag == "script":
-			element = {"type": "script"}
-			if child.attrib.get("type") == "python":
-				#include script
-				if "src" in child.attrib:
-					try:
-						if page.location.joinpath(child.attrib.get("src")).is_file():
-							filepath = page.location.joinpath(child.attrib.get("src"))
-						else:
-							filepath = pagedir.joinpath(child.attrib.get("src"))
-						with open(filepath) as f:
-							element.update({"script": compile(f.read(), filepath, "exec")})
-						res.append(element)
-					except Exception as e:
-						print("Script include error.")
-						print(type(e).__name__ + " " + str(e))
-				else:
-					element = {"type": "script", "script": child.text}
-					res.append(element)
-		elif child.tag == "sw.library.list":
-			#build library display
-			for game in library:
-				element = {"type": "sw.game", "display": game.get("name"), "game": game}
-				res.append(element)
-		elif child.tag == "sw.friends.list":
-			#build friends display
-			if len(friends_list) < 1:
-				element = {"type": "sw.friend", "display": "No friends. :("}
-				res.append(element)
-			for friend in friends_list:
-				if friend in online_friends:
-					element = {"type": "sw.friend", "display": friends_list[friend].get("name") + ": " + online_friends[friend].get("status")}
-					res.append(element)
-				else:
-					element = {"type": "sw.friend", "frienduuid": friend, "frienddata": friends_list.get(friend), "display": friends_list[friend].get("name") + ": Offline"}
-					res.append(element)
-		elif child.tag == "external":
-			#include external element
-			mod = child.attrib.get("module")
-			if pagemgr.by_modulename.get(mod) is not None:
-				res.extend(build_menu_array(mod, page))
-			else:
-				res.append({"type": "sw.element.error", "display": "This element could not be loaded."})
-		else:
-			#recursively get child elements
-			if child.text and not child.text.isspace():
-				element = {"type": child.tag, "display": child.text}
-				element.update(child.attrib)
-				res.append(element)
-			child_elements = build_menu_array(child, page)
-			if not len(child_elements) == 0:
-				res.extend(child_elements)
-			if child.tail and not child.tail.isspace():
-				element = {"type": "sw.element.tail", "display": child.tail}
-				element.update(child.attrib)
-				res.append(element)
-	
-	return res
-
-def execute_menu(m: list[dict]):
-	global current_menu, pagestd
-	choices: list[dict] = []
-	finaldisplay: list[str] = []
-	menu: list[dict] = m.copy()
-
-	choicetypes = [
-		"link", "a", #link to another page
-		"button", #actionable button
-		"exit", #exit
-		"restart", #restart
-		"sw.game", #game element
-		"sw.game.patch", #run patcher for game
-		"sw.game.run", #run game
-		"sw.game.remove", #delete game
-		"sw.library.rebuild", #rebuild library
-		"sw.setup.enter_username", #enter uname
-		"sw.game.dump", #dump game
-		"sw.game.install", #install game
-		"sw.sbe.exp.toggle", #toggle sbe exp mode
-		"sw.update.prep", #install update
-		"sw.net.togglefunc", #toggle swnet
-		"sw.friend", #friend
-		"sw.friend.add", #add friend
-		"sw.friend.remove", #remove friend
-	]
-	
-	script_context_globals = {"__builtins__": builtins}
-
-	def get_page():
-		return get_page_ref().copy()
-	
-	def get_page_ref():
-		build_menu_display()
-		return menu
-	
-	def navigate(m: str | list[dict]):
-		if type(m) is str:
-			menu = build_menu_array(m)
-		elif type(m) is list:
-			menu = m
-		build_menu_display(menu)
-
-	def cfg_write(section: str, key: str, value):
-		global cfg
-		if not cfg.has_section(section):
-			cfg.add_section(section)
-
-		cfg.set(section, key, value)
-		save_config()
-
-	def cfg_read(section: str, key: str):
-		global cfg
-		try:
-			return cfg.get(section, key, fallback=None)
-		except:
-			return None
+def load_swapp(app_path: pathlib.Path):
+	manifest = ElementTree.parse(app_path.joinpath("manifest.xml")).getroot()
+	app = swapp.App(app_path)
+	ident = manifest.find("Identity")
+	targetsdk = int(manifest.attrib.get("version", 0))
+	if not targetsdk:
+		return SwResult(False, "app_targetsdk_missing")
 		
-	def cfg_readint(section: str, key: str):
-		global cfg
-		try:
-			return cfg.getint(section, key, fallback=None)
-		except:
-			return None
-		
-	def cfg_readfloat(section: str, key: str):
-		global cfg
-		try:
-			return cfg.getfloat(section, key, fallback=None)
-		except:
-			return None
-		
-	def cfg_readbool(section: str, key: str):
-		global cfg
-		try:
-			return cfg.getboolean(section, key, fallback=None)
-		except:
-			return None
-
-	def user_data_write(key: str, value):
-		global userdata, save_userdata, userfile
-		userdata.update({key: value})
-		save_userdata(userfile, userdata)
-
-	def user_data_read(key: str):
-		global userdata
-		return userdata.get(key)
-
-	def build_menu_display(m: list[dict] = None):
-		choices.clear()
-		finaldisplay.clear()
-		if m:
-			mm = m
-		else:
-			mm = menu
-		compiled = []
-		for item in mm:
-			item_type = item.get("type")
-			if item_type == "script" and not item.get("executed", False):
-				try:
-					if item.get("script") not in compiled:
-						exec(item.get("script"), script_context_globals)
-				except Exception as e:
-					print("Script compile error.")
-					print(type(e).__name__ + " " + str(e))
-				else:
-					compiled.append(item.get("script"))
-				finally:
-					item.update({"executed": True})
-			elif item_type in choicetypes:
-				choices.append(item)
-				finaldisplay.append(f'[{len(choices)}]: {item.get("display", "<undef>")}')
-			else:
-				display = item.get("display", "")
-				if display:
-					finaldisplay.append(display)
+	minsdk = int(manifest.attrib.get("min", 0)) or targetsdk
+	if minsdk > SWAPP_SDK_CURRENT_VERSION:
+		return SwResult(False, "app_unsupported_sdk")
 	
-	def start_sw_network():
-		global sw_net_running
-		if not sw_net_running:
-			threading.Thread(target=run_sw_net, daemon=True).start()
+	maxsdk = int(manifest.attrib.get("max", 0))
+	if SWAPP_SDK_CURRENT_VERSION > maxsdk and maxsdk > 0:
+		return SwResult(False, "app_sdk_too_new")
+	if ident is None:
+		return SwResult(False, "app_identity_missing")
+	app.name = ident.findtext("Name", None)
+	if app.name is None:
+		return SwResult(False, "app_missing_name")
+	app.version = ident.findtext("Version", None)
+	if app.name is None:
+		return SwResult(False, "app_missing_version")
+	app.display_name = ident.findtext("DisplayName", app.name)
+	app.desc = ident.findtext("Desc", "")
 
+	appnames = [app.name]
 
-	script_context_globals = {"__builtins__": builtins}
-	internalstd = {
-		"swpage" : {
-			"build_display": build_menu_display,
-			"get_page": get_page,
-			"get_page_ref": get_page_ref,
-			"navigate": navigate,
-		},
-		"native": {
-			"build_menus": load_menus,
-			"rebuild_library": build_library,
-			"start_sw_net": start_sw_network
-		},
-		"cfg": {
-			"write": cfg_write,
-			"read": cfg_read,
-			"readbool": cfg_readbool,
-			"readfloat": cfg_readfloat,
-			"readint": cfg_readint
-		},
-		"user_data": {
-			"write": user_data_write,
-			"read": user_data_read
-		}
-	}
-
-	script_context_globals.update({"__builtins__": builtins})
-	pagestdmod.import_internals(internalstd)
-	#script_context_globals.update({"swinternal": internalstd})
+	deps = manifest.find("Depends")
+	if deps is not None:
+		for entry in deps:
+			if entry.tag == "App":
+				if not entry.attrib.get("appid") in installed_apps:
+					return SwResult(False, "app_appdepend_missing", entry.attrib.get("appid"))
+			elif entry.tag == "Module":
+				if not entry.attrib.get("modid") in sys.modules:
+					return SwResult(False, "app_moddepend_missing", entry.attrib.get("modid"))
 	
-	build_menu_display()
+	provides = manifest.find("Provides")
+	if provides is not None:
+		for entry in provides:
+			if entry.tag == "App":
+				if not entry.attrib.get("appid") in installed_apps:
+					app.provides.append(entry.attrib.get("appid"))
+					if not entry.attrib.get("nocompile"):
+						appnames.append(entry.attrib.get("appid"))
 
-	if len(choices) > 0:
-		while True:
-			print("\n".join(finaldisplay))
-			c = number_input("> ")-1
-			if c < 0 or c > len(choices)-1:
-				print("invalid choice, try again")
-				continue
-			choice = choices[c]
-			choice_type = choice.get("type")
-			result = None
-
-			if "beforeclick" in choice:
-				try:
-					exec(choice.get("beforeclick"), script_context_globals)
-				except Exception as e:
-					print("Script runtime error.")
-					print(type(e).__name__ + " " + str(e))
-
-			if choice_type == "link":
-				result = choice.get("target", "")
-			elif choice_type == "a":
-				result = choice.get("href", "")
-			elif choice_type == "exit":
-				if stop_subprocs(True):
-					quit()
-					sys.exit(0)
-			elif choice_type == "restart":
-				if stop_subprocs(True):
-					restart()
-					sys.exit(0)
-			elif choice_type == "sw.update.prep":
-				updpath = pathlib.Path(input("Paste the path of your snakeware update: "))
-				try:
-					if LAUNCHER_TYPE == "fastboot" or LAUNCHER_TYPE == "self":
-						print("Checking update...")
-						if updpath.is_file() and updpath.suffix == ".swupd":
-							if zipfile.is_zipfile(updpath):
-								with zipfile.ZipFile(updpath, "r") as upd:
-									print("Installing update...\nDO NOT CLOSE/INTERUPT")
-									upd.extractall(maindir)
-							elif tarfile.is_tarfile(updpath):
-								with tarfile.open(updpath, "r") as upd:
-									print("Installing update...\nDO NOT CLOSE/INTERUPT)")
-									upd.extractall(maindir, filter="data")
+	swpage3.element_registry.create_scope(app.name)
+	swpage3.element_registry.push_scope(app.name)
+	code = manifest.find("Modules")
+	if code is not None:
+		def split_module_path(path: str) -> list[str]:
+			parts = path.split(".")
+			result = []
+			for i in range(1, len(parts) + 1):
+				slice_parts = parts[:i]
+				module_path = ".".join(slice_parts)
+				result.append(module_path)
+			return result
+		def attach_child_modules(module_path: str):
+			if module_path not in sys.modules:
+				return
+			
+			module = sys.modules[module_path]
+			if '.' not in module_path:
+				return
+			parent_path, child_name = module_path.rsplit('.', 1)
+			attach_child_modules(parent_path)
+			setattr(module, child_name, module)
+		
+		fail = None
+		path_to_clean = []
+		mod_to_clean = []
+		mods_to_dummy = []
+		try:
+			for mod in code:
+				if mod.tag == "Module" and "path" in mod.attrib:
+					full_mod_pth = app_path / mod.attrib.get("path")
+					mod_pth = full_mod_pth.relative_to(app_path).with_suffix("")
+					if not full_mod_pth.exists():
+						print(f"WARNING (for {app.name}): {mod_pth} is not exist.")
+						continue
+					
+					for appname in appnames:
+						mod_name = None
+						if "name" in mod.attrib:
+							if mod.attrib.get("name").strip() or mod.attrib.get("name") == "__init__":
+								mod_name = f"{appname}"
 							else:
-								print("file provided is not an update")
-							if LAUNCHER_TYPE == "fastboot":
-								print("Installing bootfile(s)...\nDO NOT CLOSE/INTERUPT)")
-								for dir in maindir.iterdir():
-									if dir.suffix == ".fastboot":
-										run_fastboot_command(["-Io", maindir.joinpath(dir)])
+								mod_name = f"{appname}.{mod.attrib.get("name")}"
 						else:
-							print("file provided is not an update")
-					elif LAUNCHER_TYPE == "legacy":
-						shutil.copy(updpath, maindir)
-					else:
-						print("Your launcher/launch method does not support updates.")
-				except:
-					print("an error occured updating")
-				else:
-					restart()
-			elif choice_type == "sw.library.rebuild":
-				print("Rebuilding library database...")
-				build_library(True)
-			elif choice_type == "sw.game":
-				game: dict = choice.get("game")
-				if not game:
-					print("Whoops! Something went wrong!")
-				result = [
-					{"type": "txt", "display": choice.get("display", "<undef>")},
-					{"type": "sw.game.run", "display": "Play", "exec": game.get("exec", []), "origin": game.get("origin"), "game": game},
-					{"type": "sw.game.patch", "display": "Run Patcher", "origin": game.get("origin"), "skip_steamless": False},
-					{"type": "sw.game.dump", "display": "Dump files", "origin": game.get("origin"), "game": game},
-					{"type": "sw.game.remove", "display": "Uninstall", "origin": game.get("origin")},
-					{"type": "link", "display": "Back to Library", "target": "library"}
-				]
-			elif choice_type == "sw.friend":
-				friend_uuid: uuid.UUID = choice.get("frienduuid")
-				friend: dict = choice.get("frienddata")
-				if not friend:
-					print("Whoops! Something went wrong!")
-				result = [
-					{"type": "txt", "display": friend.get("name")},
-				]
-				if not friends_list.get(friend_uuid):
-					result.append({"type": "sw.friend.add", "display": "Add Friend", "frienddata": friend, "friendid": friend_uuid})
-				else:
-					result.append({"type": "sw.friend.remove", "display": "Remove Friend", "friendid": friend_uuid})
-				result.append({"type": "link", "display": "Back to Friends", "target": "friendslist"})
-			elif choice_type == "sw.friend.add":
-				result = "friendslist"
-				friend_uuid = str(choice.get("friendid"))
-				friend: dict = choice.get("frienddata")
-				friends_list.update({friend_uuid: friend})
-				print("Friend added!")
-				save_friends(friends_list)
-			elif choice_type == "sw.friend.remove":
-				result = "friendslist"
-				friend_uuid = str(choice.get("friendid"))
-				friends_list.pop(friend_uuid)
-				print("Friend removed.")
-				save_friends(friends_list)
-			elif choice_type == "sw.game.run":
-				runthing = True
-				for proc in subprocs:
-					if proc.get("name") == choice.get("game").get("name") and proc.get("type") == "game":
-						runthing = False
-						print("Game is already running!")
-						break
-				if runthing:
-					run_game(choice.get("exec", []), choice.get("origin"), choice.get("game").get("name"))
-			elif choice_type == "sw.game.install":
-				updpath = pathlib.Path(input("Paste the path of your swPKG archive: ")) 
-				if updpath.is_file() and tarfile.is_tarfile(updpath):
-					print("Installing...")
-					with tarfile.open(updpath, "r:gz") as pkg:
-						pkg.extractall(librarydir, filter="data")
-					print("Installed.")
-					build_library()
-				elif updpath.is_file() and zipfile.is_zipfile(updpath):
-					print("Installing...")
-					with zipfile.ZipFile(updpath, "r") as pkg:
-						pkg.extractall(librarydir)
-					print("Installed.")
-					build_library()
-				else:
-					print("error, not good path")
-			elif choice_type == "sw.game.dump":
-				dump_game_zip(choice.get("origin", []), choice.get("game"))
-			elif choice_type == "sw.game.patch":
-				print("Patching...")
-				patch_game(choice.get("origin"), choice.get("skip_steamless", True))
-				print("Done!")
-			elif choice_type == "sw.setup.enter_username":
-				global username, userdata, userfile
-				username = input_username_setup()
-				userdata.update({"name": username})
-				save_userdata(userfile, userdata)
-				save_config()
-			elif choice_type == "sw.game.remove":
-				print("Uninstalling...")
-				shutil.rmtree(choice.get("origin"))
-				print("Uninstalled!")
-				build_library()
-				result = "library"
-			elif choice_type == "sw.net.togglefunc":
-				global sw_net_running
-				if sw_net_running:
-					sw_net_running = False
-				else:
-					threading.Thread(target=run_sw_net, daemon=True).start()
+							if mod_pth.stem == "__init__":
+								if mod_pth.parent.as_posix() == ".":
+									mod_name = f"{appname}"
+								else:
+									mod_name = f"{appname}.{mod_pth.parent.as_posix().replace("/", ".")}"
+							else:
+								mod_name = f"{appname}.{mod_pth.as_posix().replace("/", ".")}"
+						to_dumb = split_module_path(mod_name)
+						for dumb in to_dumb:
+							if dumb not in mods_to_dummy:
+								mods_to_dummy.append(dumb)
 
-			if "onclick" in choice:
+						mod_to_clean.append(mod_name)
+						sys.path.append(full_mod_pth)
+						path_to_clean.append(full_mod_pth)
+						spec = importlib.util.spec_from_file_location(mod_name, full_mod_pth)
+						module = importlib.util.module_from_spec(spec)
+						module.__path__ = []
+						sys.modules[mod_name] = module
+						spec.loader.exec_module(module)
+						app.modules.update({mod_name: module})
+		except Exception as e:
+			fail = e
+		else:
+			mod_to_clean.clear()
+			for modd in mods_to_dummy:
+				if modd not in sys.modules:
+					dumb_mod = types.ModuleType(modd)
+					sys.modules[modd] = dumb_mod
+			for modd in mods_to_dummy:
+				attach_child_modules(modd)
+		finally:
+			for mod in mod_to_clean:
+				sys.modules.pop(mod, None)
+			for pth in path_to_clean:
 				try:
-					exec(choice.get("onclick"), script_context_globals)
-				except Exception as e:
-					print("Script runtime error.")
-					print(type(e).__name__ + " " + str(e))
+					sys.path.remove(pth)
+				except:
+					pass
+			if fail:
+				return SwResult(False, "app_module_import_exception", None, fail)
+	entrypoints = manifest.find("Entrypoints")
+	if entrypoints is not None:
+		for entry in entrypoints:
+			if entry.tag == "PageEntry":
+				page_path = app_path.joinpath(entry.attrib.get("path"))
+				app.entrypoints.update({entry.attrib.get("id"): ElementTree.parse(page_path).getroot()})
+	page_inc = manifest.find("PageIncludes")
+	if page_inc is not None:
+		for entry in page_inc:
+			if entry.tag == "Include":
+				app.page_includes.append(entry.attrib.get("appid"))
+	swpage3.element_registry.pop_scope()
+	return SwResult(True, "app_loaded", app)
 
+installed_apps: swapp.AppDB = swapp.AppDB()
+
+def load_swapps() -> None:
+	pth = appdir
+	installed_apps.apps.clear()
+	installed_apps.provided.clear()
+	retry = {}
+	next_retry = {}
+	for app_path in pth.iterdir():
+		if app_path.is_dir() and app_path.joinpath("manifest.xml").exists():
+			retry.update({app_path: 0})
+	while len(retry) > 0:
+		for retry_pth in retry:
+			result = load_swapp(retry_pth)
 			if result:
-				return result
-	else:
-		print("\n".join(finaldisplay))
+				app: swapp.App = result.return_value
+				app.db = installed_apps
+				installed_apps.add_app(app)
+			else:
+				if retry[retry_pth] > 1000:
+					print(f"Failed to load app from {retry_pth}")
+					continue
+				next_retry.update({retry_pth: retry[retry_pth] + 1})
+		retry = next_retry.copy()
+		next_retry.clear()
+
+def process_handler_calls(capp: swapp.PageHandler):
+	if "_sw_page_handler_calls" in capp.cdata:
+		for call in capp.cdata.get("_sw_page_handler_calls"):
+			func, *args = call
+			appdat: swapp.App = capp.app_data
+			match func:
+				case "switch_page":
+					capp.push_page(ElementTree.parse(appdat.origin.joinpath(args[0])).getroot(), args=args[1:])
+				case "replace_page":
+					capp.replace_page(ElementTree.parse(appdat.origin.joinpath(args[0])).getroot(), args=args[1:])
+				case "switch_app":
+					app = installed_apps.get_app(args[0])
+					if not app:
+						raise Exception(f"E: App {args[0]} not installed.")
+					app_handler.push_app(app, "main" if len(args) < 2 else args[1], None if len(args) < 3 else args[2], None if len(args) < 4 else args[3])
+				case "replace_app":
+					app = installed_apps.get_app(args[0])
+					if not app:
+						raise Exception(f"E: App {args[0]} not installed.")
+					app_handler.replace_app(app, "main" if len(args) < 2 else args[1], None if len(args) < 3 else args[2], None if len(args) < 4 else args[3])
+				case "run_game":
+					id_to_launch = args[0]
+					for game in get_library():
+						if game.get("id") == id_to_launch:
+							if game.get("exec"):
+								run_game(game.get("exec"), game.get("origin"), game.get("name", game.get("id")))
+								break
+				case "patch_game":
+					id_to_launch = args[0]
+					for game in get_library():
+						if game.get("id") == id_to_launch:
+							patch_game(game.get("origin"), False)
+							break
+				case "reload_apps":
+					load_swapps()
+				case "sw_restart":
+					restart()
+				case "sw_quit":
+					quit()
+				case _:
+					print(f"Unknown SWCALL: {func}")
+		capp.cdata.pop("_sw_page_handler_calls")
 
 def get_userdata(src: pathlib.Path):
 	try:
-		with open(src) as srcfile:
-			return json.load(srcfile)
+		from snakeware.apis.user import SwUser
+		with SwUser(userfile) as udat:
+			userdata = udat.getall()
+			return userdata
+	except ImportError:
+		print("E: Snakeware User API not installed!")
+		return {}
 	except:
+		print("E: Snakeware failed to get user data!")
 		return {}
 
 def save_userdata(src: pathlib.Path, userdat: dict):
-	with open(src, "w") as srcfile:
-		return json.dump(userdat, srcfile)
-
-def get_friend_from_uid(uid: str | uuid.UUID):
-	uid = str(uid)
-	if uid in friends_list:
-		return friends_list[uid]
-	for friendid in friends_list:
-		friend = friends_list[friendid]
-		if friend.get("uid") == uid:
-			return friend
-	return None
-
-def save_friends(udata: dict):
-	global friends_list
-	udata.update({"friends": friends_list})
-
-def process_sw_net_msg(msgdata: sw_network.MessageData):
-	data = msgdata.data
-	is_udp = msgdata.conn_id == "*UDP*"
-	match data.get("cmd"):
-		case "friends.heartbeat.ping":
-			if is_udp:
-				frienduid = data.get("sender")
-				friend = get_friend_from_uid(frienduid)
-				if frienduid in friends_list:
-					online_friends.update({frienduid: data.get("status", "Online")})
-					sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.pong", userdata.get("uid"), {"addr": msgdata.addr, "status": online_status}, True, False))
-		case "friends.heartbeat.pong":
-			if is_udp:
-				frienduid = data.get("sender")
-				friend = get_friend_from_uid(frienduid)
-				if frienduid in friends_list:
-					online_friends.update({frienduid: data.get("status", "Online")})
-		case "friends.status.update":
-			frienduid = data.get("sender")
-			friend = get_friend_from_uid(frienduid)
-			if frienduid in friends_list:
-				online_friends.update({frienduid: data.get("status", "Online")})
-
-def process_sw_net_queue(recv: queue.Queue):
-	while not recv.empty():
-		cmd: dict = recv.get()
-		match cmd.get("type"):
-			case "recv-msg":
-				try:
-					process_sw_net_msg(cmd.get("data"))
-				except:
-					continue
-		recv.task_done()
-
-sw_net_running = False
-sw_net_thread_active = False
-
-def run_sw_net():
-	global sw_net_running, sw_net_thread_active
-	if sw_net_thread_active:
-		return
-	print("Connecting to Snakeware Network...")
-	threading.Thread(target=sw_network.run_sw_network_node, args=[sw_network_send, sw_network_recv], daemon=True).start()
-	online_friends.clear()
-	ticks = 0
-	sw_net_running = True
-	sw_net_thread_active = True
-	while sw_net_running:
-		try:
-			if not sw_net_running:
-				break
-			ticks += 1
-			ticks %= 30
-			if ticks % 4 == 0:
-				online_friends.clear()
-			sw_network_send.put(sw_network.gen_msg_data("friends.heartbeat.ping", userdata.get("uid"), {"status": online_status}, True, True))
-		except Exception as e:
-			sw_net_running = False
-			print("An error occured with Snakeware Network.")
-			print(type(e).__name__)
-			print(e)
-			break
-		time.sleep(5)
-	sw_net_running = False
-	sw_net_thread_active = False
-		
+	try:
+		from snakeware.apis.user import SwUser
+		with SwUser(userfile) as udat:
+			userdata = udat.getall()
+	except ImportError:
+		print("E: Snakeware User API not installed!")
+	except:
+		print("E: Snakeware failed to save user data!")
 
 if __name__ == "__main__":
-	print("Starting Snakeware 2.3...")
+	print("Starting Snakeware 3.0...")
 	LAUNCHER_TYPE, LAUNCHER_NAME, LAUNCHER_VER = detect_launcher()
 	if LAUNCHER_TYPE != "self":
 		print(f"Running with {LAUNCHER_NAME}v{LAUNCHER_VER} ({LAUNCHER_TYPE})")
@@ -866,61 +571,81 @@ if __name__ == "__main__":
 	cfg: configparser.ConfigParser = configparser.ConfigParser()
 	cfg.read(cfgfile)
 
-	userdata = get_userdata(userfile)
+	get_sbefiles()
+	load_swapps()
+
 	udatready = False
+
+	userdata = get_userdata(userfile)
 
 	#get username for session
 	username = userdata.get("name")
-	if not username:
-		try:
-			username = cfg.get("user", "name")
-			generate_steam_settings()
-			print("Welcome " + username + "!")
-		except:
-			pass
-	else:
-		print("Welcome " + username + "!")
-		friends_list = userdata.get("friends", [])
-		udatready = True
-
-	print("Loading...")
-
-	compile_pagestd()
-
-	#load useful things
-	try:
-		load_library()
-	except:
-		if cfg.getboolean("sys", "library-built", fallback=False):
-			print("Library missing, rebuilding...")
-		build_library()
-		if not cfg.has_section("sys"):
-			cfg.add_section("sys")
-		cfg.set("sys", "library-built", "yes")
-		save_config()
-
-	get_sbefiles()
-	load_menus()
-
-	if udatready and userdata.get("sw_network_enabled", False):
-		threading.Thread(target=run_sw_net, daemon=True).start()
 
 	try:
-		current_menu = None
-		if not cfg.getboolean("user", "setup-done", fallback=False):
-			current_menu = build_menu_array("oobe\\firstrun")
-		elif cfg.getboolean("user", "setup-done", fallback=False) and not udatready:
-			current_menu = build_menu_array("oobe\\migrate")
-		else:
-			current_menu = build_menu_array("home")
+		from snakeware.apis.library import *
+		load_library(librarydir)
+		library = get_library()
+		if len(library) < 1:
+			build_library(librarydir)
+	except ImportError:
+		print("Library APIs Unavalible!")
 
+	try:
+		boot_app_name = cfg.get("sys", "boot-app", fallback="snakeware.boot2")
+		if not boot_app_name:
+			raise Exception("Boot App not defined!")
+		app_ctx_vars = {
+			"sw_username": username,
+		}
+		app_handler = swapp.AppHandler()
+		app_handler.cdata.update({
+			"sw_maindir": maindir,
+			"sw_librarydir": librarydir,
+		})
+		boot_app = installed_apps.get_app(boot_app_name)
+		if not boot_app:
+			raise Exception("Boot App not installed!")
+		app_handler.push_app(boot_app, context_vars=app_ctx_vars)
+		
 		while True:
-			process_sw_net_queue(sw_network_recv)
-			menu_result = execute_menu(current_menu)
-			if type(menu_result) is str:
-				current_menu = build_menu_array(menu_result)
-			elif type(menu_result) is list:
-				current_menu = menu_result
+			capp = app_handler.current_app
+			if capp is None:
+				quit()
+				raise Exception("Somehow persisted past quit().")
+			if capp.current_page is None:
+				app_handler.pop_app()
+				continue
+			ctx = swpage3.PageContext(capp, app_handler, capp.app_data)
+			ctx.app_data = capp.cdata
+			ctx.global_data = app_handler.cdata
+			capp.cdata.update({"_ctx_vars": app_ctx_vars})
+			#print("\033c", end="")
+			try:
+				rendered_page = swpage3.get_renderable(capp.current_page.render(ctx)).render(ctx)
+				if rendered_page:
+					print(rendered_page)
+				process_handler_calls(capp)
+				if len(ctx._handlers) > 0:
+					handler_to_call = None
+					while not handler_to_call:
+						try:
+							handler_to_call = int(input("> "))
+						except ValueError:
+							print("Invalid entry, try again.")
+						else:
+							h = ctx.get_handler(handler_to_call)
+							if h:
+								h()
+					process_handler_calls(capp)
+			except Exception as e:
+				#handle app crash
+				failedapp = app_handler.current_app.app_data
+				app_handler.pop_app()
+				if not app_handler.current_app:
+					raise
+				print(f"An uncaught error has occured in the following app: {failedapp.display_name} ({failedapp.name})")
+				print("Error code: " + type(e).__name__)
+				print(e)
 	except KeyboardInterrupt:
 		print("Interrupted.")
 		quit()

@@ -1,0 +1,9 @@
+<Page>
+    <SwConfigEventListener/>
+    <VBox>
+        <Header text="Settings"/>
+        <Button id="rebuild_library" text="Rebuild Library" />
+        <Button id="reload_apps" text="Reload Apps" />
+        <BackButton text="Back"/>
+    </VBox>
+</Page>
