@@ -9,6 +9,10 @@
         <Module path="__init__.py"/>
     </Modules>
 
+    <Provides>
+        <App appid="boot2" />
+    </Provides>
+
     <Entrypoints>
         <PageEntry id="main" path="init.swpage3"/>
     </Entrypoints>

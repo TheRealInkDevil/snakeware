@@ -591,7 +591,7 @@ if __name__ == "__main__":
 		print("Library APIs Unavalible!")
 
 	try:
-		boot_app_name = cfg.get("sys", "boot-app", fallback="snakeware.boot2")
+		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")
 		if not boot_app_name:
 			raise Exception("Boot App not defined!")
 		app_ctx_vars = {
