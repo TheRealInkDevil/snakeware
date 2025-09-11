@@ -608,24 +608,24 @@ if __name__ == "__main__":
 		app_handler.push_app(boot_app, context_vars=app_ctx_vars)
 		
 		while True:
-			capp = app_handler.current_app
-			if capp is None:
+			current_app = app_handler.current_app
+			if current_app is None:
 				quit()
 				raise Exception("Somehow persisted past quit().")
-			if capp.current_page is None:
+			if current_app.current_page is None:
 				app_handler.pop_app()
 				continue
-			ctx = swpage3.PageContext(capp, app_handler, capp.app_data)
-			ctx.app_data = capp.cdata
-			ctx.global_data = app_handler.cdata
-			capp.cdata.update({"_ctx_vars": app_ctx_vars})
+			page_context = swpage3.PageContext(current_app, app_handler, current_app.app_data)
+			page_context.app_data = current_app.cdata
+			page_context.global_data = app_handler.cdata
+			current_app.cdata.update({"_ctx_vars": app_ctx_vars})
 			#print("\033c", end="")
 			try:
-				rendered_page = swpage3.get_renderable(capp.current_page.render(ctx)).render(ctx)
+				rendered_page = swpage3.get_renderable(current_app.current_page.render(page_context)).render(page_context)
 				if rendered_page:
 					print(rendered_page)
-				process_handler_calls(capp)
-				if len(ctx._handlers) > 0:
+				process_handler_calls(current_app)
+				if len(page_context._handlers) > 0:
 					handler_to_call = None
 					while not handler_to_call:
 						try:
@@ -633,10 +633,10 @@ if __name__ == "__main__":
 						except ValueError:
 							print("Invalid entry, try again.")
 						else:
-							h = ctx.get_handler(handler_to_call)
+							h = page_context.get_handler(handler_to_call)
 							if h:
 								h()
-					process_handler_calls(capp)
+					process_handler_calls(current_app)
 			except Exception as e:
 				#handle app crash
 				failedapp = app_handler.current_app.app_data
