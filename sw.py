@@ -135,9 +135,8 @@ def make_dir_junction(src: str, dst: str) -> None:
 	shutil.copytree(src, dst, dirs_exist_ok=True)
 
 #get file paths for files
-def get_sbefiles() -> None:
-	global cfg
-	if cfg.getboolean("sbe", "exp", fallback=False):
+def get_sbefiles(experimental: bool = False) -> None:
+	if experimental:
 		sbefiles.update({
 			"steam_api": sbeallfiles.get("steam_api_experimental"),
 			"steam_api64": sbeallfiles.get("steam_api64_experimental"),
