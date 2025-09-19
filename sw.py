@@ -46,10 +46,6 @@ librarydir: pathlib.Path = maindir.joinpath("library")
 #library: list[dict] = []
 #launch_option = "quit"
 
-LAUNCHER_NAME = "<none>"
-LAUNCHER_TYPE = "self"
-LAUNCHER_VER = "<none>"
-
 subprocs: list[dict] = []
 
 os.makedirs(librarydir, exist_ok=True)
@@ -64,22 +60,6 @@ class SwResult:
 	
 	def __bool__(self):
 		return self.success
-
-#try to detect current launcher
-#returns launcher as the following: (type, name, version)
-def detect_launcher():
-	if os.getenv("FASTBOOT_BOOTLOADER_NAME"):
-		return ("fastboot", os.getenv("FASTBOOT_BOOTLOADER_NAME"), os.getenv("FASTBOOT_BOOTLOADER_VERSION"))
-	else:
-		return ("self", "<none>", 0)
-
-def run_fastboot_command(args: list[str], wait: bool = True):
-	arg = [os.getenv("FASTBOOT_PYTHON"), os.getenv("FASTBOOT_SRC")]
-	arg.extend(args)
-	proc = subprocess.Popen(arg)
-	if wait:
-		proc.wait()
-	return proc.returncode
 
 #create blank config
 if not cfgfile.exists():
@@ -117,22 +97,11 @@ def stop_subprocs(no_escape: bool = True, force: bool = False):
 	return exit_procs
 
 def quit():
-	if LAUNCHER_TYPE == "fastboot":
-		sys.exit(0)
-	else:
-		sys.exit(0)
+	sys.exit(0)
 
 def restart():
-	if LAUNCHER_TYPE == "fastboot":
-		subprocess.Popen([os.getenv("FASTBOOT_PYTHON"), os.getenv("FASTBOOT_SRC")])
-		sys.exit(0)
-	else:
-		subprocess.Popen(sys.orig_argv)
-		sys.exit(0)
-
-#copy dir
-def make_dir_junction(src: str, dst: str) -> None:
-	shutil.copytree(src, dst, dirs_exist_ok=True)
+	subprocess.Popen(sys.orig_argv)
+	sys.exit(0)
 
 #get file paths for files
 def get_sbefiles(experimental: bool = False) -> None:
@@ -160,23 +129,6 @@ def number_input(ask: str) -> int:
 			return int(input(ask))
 		except ValueError:
 			print("that's not a number, try again.")
-
-#ask for valid username
-def input_username_setup():
-	uname = ""
-	while True:
-		uname = input("Enter your username (5-15 chars): ")
-		if len(uname) > 15:
-			print("Username is too long!")
-		elif len(uname) < 5:
-			print("Username is too short!")
-		elif not uname.isalnum():
-			print("Username contains invalid characters!")
-		else:
-			uname += "_" + str(random.randint(1111,9999))
-			print("Your final username: " + uname)
-			break
-	return uname
 
 #Library Functions ported from Snakeware APIs 1.0.0
 
@@ -290,25 +242,6 @@ def run_game(exec: list, origin: str, name: str):
 	print(f"Running {name}... (if it doesn't work, run the patcher!)")
 	with open(pathlib.Path(origin, "stdout.log"), "w") as stdoutfile:
 		reg_subproc(subprocess.Popen(exec, cwd=origin, stdout=stdoutfile, shell=True), name, "game")
-
-def dump_game_tar(gamedir: str, game: dict):
-	name = game.get("name", "unknown")
-	print("Dumping " + name + "...")
-	patch_game(gamedir, False)
-	with tarfile.open(name + ".swpkg", "w:gz") as dump:
-		dump.add(gamedir, name, recursive=True)
-	print("Done.")
-
-def dump_game_zip(gamedir: pathlib.Path, game: dict):
-	gamedir = pathlib.Path(gamedir)
-	name = game.get("name", "unknown")
-	print("Dumping " + name + "...")
-	patch_game(gamedir, False)
-	with zipfile.ZipFile(name + ".swpkg", "w") as dump:
-		for root, dirs, files in gamedir.walk():
-			for file in files:
-				dump.write(root.joinpath(file), pathlib.Path(name, root.joinpath(file).relative_to(gamedir)))
-	print("Done.")
 
 #save config
 def save_config() -> None:
@@ -563,9 +496,6 @@ def save_userdata(src: pathlib.Path, userdat: dict):
 
 if __name__ == "__main__":
 	print("Starting Snakeware 3.0...")
-	LAUNCHER_TYPE, LAUNCHER_NAME, LAUNCHER_VER = detect_launcher()
-	if LAUNCHER_TYPE != "self":
-		print(f"Running with {LAUNCHER_NAME}v{LAUNCHER_VER} ({LAUNCHER_TYPE})")
 
 	#get config
 	cfg: configparser.ConfigParser = configparser.ConfigParser()
