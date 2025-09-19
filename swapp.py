@@ -37,7 +37,7 @@ class AppDB:
                 return app
         for app in self.provided:
             if app == name:
-                return next(iter(self.provided[app].values()), None)
+                return next(iter(self.provided[app].keys()), None)
         return None
     
     def get_app(self, name, ignore_provides=False):

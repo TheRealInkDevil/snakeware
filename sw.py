@@ -325,18 +325,19 @@ SWAPP_SDK_CURRENT_VERSION = 1
 def load_swapp(app_path: pathlib.Path):
 	manifest = ElementTree.parse(app_path.joinpath("manifest.xml")).getroot()
 	app = swapp.App(app_path)
-	ident = manifest.find("Identity")
+	#detect sdk version bounds
 	targetsdk = int(manifest.attrib.get("version", 0))
 	if not targetsdk:
 		return SwResult(False, "app_targetsdk_missing")
-		
-	minsdk = int(manifest.attrib.get("min", 0)) or targetsdk
+	minsdk = int(manifest.attrib.get("min", targetsdk))
 	if minsdk > SWAPP_SDK_CURRENT_VERSION:
 		return SwResult(False, "app_unsupported_sdk")
-	
 	maxsdk = int(manifest.attrib.get("max", 0))
 	if SWAPP_SDK_CURRENT_VERSION > maxsdk and maxsdk > 0:
 		return SwResult(False, "app_sdk_too_new")
+	
+	#setup app identity
+	ident = manifest.find("Identity")
 	if ident is None:
 		return SwResult(False, "app_identity_missing")
 	app.name = ident.findtext("Name", None)
@@ -603,7 +604,7 @@ if __name__ == "__main__":
 		})
 		boot_app = installed_apps.get_app(boot_app_name)
 		if not boot_app:
-			raise Exception("Boot App not installed!")
+			raise Exception(f"Boot App {boot_app_name} not installed!")
 		app_handler.push_app(boot_app, context_vars=app_ctx_vars)
 		
 		while True:
