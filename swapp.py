@@ -1,7 +1,6 @@
 import swpage3
 
-
-class App:
+class AppMetadata:
     def __init__(self, origin):
         self.db: AppDB = None
         self.name = "<name>"
@@ -19,13 +18,13 @@ def create_call(func_name, *args):
 
 class AppDB:
     def __init__(self):
-        self.apps: dict[str, App] = {}
-        self.provided: dict[str, dict[str, App]] = {}
+        self.apps: dict[str, AppMetadata] = {}
+        self.provided: dict[str, dict[str, AppMetadata]] = {}
     
     def __contains__(self, value):
         return value in self.apps or value in self.provided
     
-    def add_app(self, new_app: App):
+    def add_app(self, new_app: AppMetadata):
         if new_app.name not in self.apps:
             self.apps[new_app.name] = new_app
         for provide in new_app.provides:
@@ -46,23 +45,23 @@ class AppDB:
         return self.apps.get(self.resolve_app_name(name), None)
 
     def by_name(self, name, include_provides=False):
-        result: list[App] = {}
+        result: list[AppMetadata] = {}
         for app in self.apps.values():
             if app.name == name or (include_provides and name in app.provides):
                 result.append(app)
     
     def by_entry(self, name):
-        result: list[App] = {}
+        result: list[AppMetadata] = {}
         for app in self.apps.values():
             if name in app.entrypoints:
                 result.append(app)
 
 class PageHandler:
-    def __init__(self, app_data: App):
+    def __init__(self, app_data: AppMetadata):
         self._page_stack = []
         self.current_page = None
         self.cdata: dict = {}
-        self.app_data: App = app_data
+        self.app_data: AppMetadata = app_data
     
     def push_page(self, page, context_vars: dict=None, args: list = None):
         self.cdata.update({"_sw_page_launch_args": args or []})
@@ -110,7 +109,7 @@ class AppHandler:
         self.current_app: PageHandler = None
         self.cdata: dict = {}
     
-    def push_app(self, app: App, entrypoint="main", args: list=None, context_vars: dict=None):
+    def push_app(self, app: AppMetadata, entrypoint="main", args: list=None, context_vars: dict=None):
         ep = app.entrypoints.get(entrypoint)
         if ep is not None:
             new_pages = PageHandler(app)
@@ -122,7 +121,7 @@ class AppHandler:
         else:
             raise Exception(f"Entrypoint {entrypoint} not found.")
     
-    def replace_app(self, app: App, entrypoint="main", args: list=None, context_vars: dict=None):
+    def replace_app(self, app: AppMetadata, entrypoint="main", args: list=None, context_vars: dict=None):
         ep = app.entrypoints.get(entrypoint)
         if ep is not None:
             new_pages = PageHandler(app)

@@ -257,7 +257,7 @@ SWAPP_SDK_CURRENT_VERSION = 1
 
 def load_swapp(app_path: pathlib.Path):
 	manifest = ElementTree.parse(app_path.joinpath("manifest.xml")).getroot()
-	app = swapp.App(app_path)
+	app = swapp.AppMetadata(app_path)
 	#detect sdk version bounds
 	targetsdk = int(manifest.attrib.get("version", 0))
 	if not targetsdk:
@@ -417,7 +417,7 @@ def load_swapps() -> None:
 		for retry_pth in retry:
 			result = load_swapp(retry_pth)
 			if result:
-				app: swapp.App = result.return_value
+				app: swapp.AppMetadata = result.return_value
 				app.db = installed_apps
 				installed_apps.add_app(app)
 			else:
@@ -432,7 +432,7 @@ def process_handler_calls(capp: swapp.PageHandler):
 	if "_sw_page_handler_calls" in capp.cdata:
 		for call in capp.cdata.get("_sw_page_handler_calls"):
 			func, *args = call
-			appdat: swapp.App = capp.app_data
+			appdat: swapp.AppMetadata = capp.app_data
 			match func:
 				case "switch_page":
 					capp.push_page(ElementTree.parse(appdat.origin.joinpath(args[0])).getroot(), args=args[1:])
