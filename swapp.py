@@ -144,8 +144,11 @@ class AppHandler:
             raise Exception(f"Entrypoint {entrypoint} not found.")
     
     def replace_app(self, app: AppMetadata, entrypoint="main", args: list=None, context_vars: dict=None):
-        ep = app.entrypoints.get(entrypoint)
-        if ep is not None:
+        entryp = app.entrypoints.get(entrypoint)
+        if entryp is not None:
+            if entryp.entry_type != AppEntrypoint.PAGE_ENTRY:
+                raise Exception(f"Non-PageEntry entrypoints are not implemented yet.")
+            ep = entryp.data
             new_pages = PageHandler(app)
             new_pages.cdata.update({"_sw_app_launch_args": args or []})
             new_pages.push_page(ep, context_vars)
