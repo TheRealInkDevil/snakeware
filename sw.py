@@ -283,6 +283,7 @@ def load_swapp(app_path: pathlib.Path):
 	app.desc = ident.findtext("Desc", "")
 
 	appnames = [app.name]
+	modnames = []
 
 	deps = manifest.find("Depends")
 	if deps is not None:
@@ -368,6 +369,7 @@ def load_swapp(app_path: pathlib.Path):
 						sys.modules[mod_name] = module
 						spec.loader.exec_module(module)
 						app.modules.update({mod_name: module})
+						modnames.append(mod_name)
 		except Exception as e:
 			fail = e
 		else:
@@ -391,9 +393,17 @@ def load_swapp(app_path: pathlib.Path):
 	entrypoints = manifest.find("Entrypoints")
 	if entrypoints is not None:
 		for entry in entrypoints:
-			if entry.tag == "PageEntry":
-				page_path = app_path.joinpath(entry.attrib.get("path"))
-				app.entrypoints.update({entry.attrib.get("id"): ElementTree.parse(page_path).getroot()})
+			match entry.tag:
+				case "ClassEntry":
+					class_path = entry.attrib.get("class")
+					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, class_path)})
+				case "FuncEntry":
+					func_path = entry.attrib.get("func")
+					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, func_path)})
+				case "PageEntry":
+					page_path = app_path.joinpath(entry.attrib.get("path"))
+					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, ElementTree.parse(page_path).getroot())})
+				
 	page_inc = manifest.find("PageIncludes")
 	if page_inc is not None:
 		for entry in page_inc:

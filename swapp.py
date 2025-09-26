@@ -1,17 +1,36 @@
-import swpage3
+import swpage3, types
 
 class AppMetadata:
     def __init__(self, origin):
         self.db: AppDB = None
-        self.name = "<name>"
-        self.display_name = "<display_name>"
-        self.version = "<version>"
-        self.desc = "<description>"
-        self.modules = {}
-        self.entrypoints = {}
-        self.origin = origin
-        self.page_includes = []
-        self.provides = []
+        self.name: str = "<name>"
+        self.display_name: str = "<display_name>"
+        self.version: str = "<version>"
+        self.desc: str = "<description>"
+        self.modules: dict[str, types.ModuleType] = {}
+        self.entrypoints: dict[str, AppEntrypoint] = {}
+        self.origin: str = origin
+        self.page_includes: list[str] = []
+        self.provides: list[str] = []
+
+class AppEntrypoint:
+    CLASS_ENTRY = 0
+    FUNC_ENTRY = 1
+    PAGE_ENTRY = 2
+    def __init__(self, id, entry_type, data):
+        self.id = id
+        self.data = data
+        self.entry_type = entry_type
+
+class App:
+    def __init__(self):
+        pass
+
+    def on_startup(self):
+        pass
+
+    def on_exit(self):
+        pass
 
 def create_call(func_name, *args):
     return (func_name,) + args
@@ -112,6 +131,8 @@ class AppHandler:
     def push_app(self, app: AppMetadata, entrypoint="main", args: list=None, context_vars: dict=None):
         ep = app.entrypoints.get(entrypoint)
         if ep is not None:
+            if ep.entry_type != AppEntrypoint.PAGE_ENTRY:
+                raise Exception(f"Non-PageEntry entrypoints are not implemented yet.")
             new_pages = PageHandler(app)
             new_pages.cdata.update({"_sw_app_launch_args": args or []})
             new_pages.push_page(ep, context_vars)
