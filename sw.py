@@ -2,7 +2,7 @@
 import sys, os, subprocess, threading
 import filecmp, shutil, tarfile, zipfile, pathlib
 import json, configparser, random, types
-import importlib, importlib.util
+import importlib, importlib.util, inspect
 
 from xml.etree import ElementTree
 #define core directory
@@ -12,7 +12,7 @@ if __name__ == "__main__":
 sys.path.append(str(maindir))
 
 #critical imports
-import swpage3, swapp
+import swpage3, swapp, swapp.handlercompat, swapp.elements
 
 #define other directories
 appdir: pathlib.Path = maindir.joinpath("app")
@@ -255,6 +255,19 @@ def save_config() -> None:
 
 SWAPP_SDK_CURRENT_VERSION = 1
 
+def get_value_of_path(pypath: str):
+	to_dig = pypath.split(".")
+	is_top_level = True
+	value = None
+	for dig in to_dig:
+		print(dig)
+		if is_top_level:
+			value = globals().get(dig)
+			is_top_level = False
+		else:
+			value = getattr(value, dig)
+	
+
 def load_swapp(app_path: pathlib.Path):
 	manifest = ElementTree.parse(app_path.joinpath("manifest.xml")).getroot()
 	app = swapp.AppMetadata(app_path)
@@ -396,10 +409,10 @@ def load_swapp(app_path: pathlib.Path):
 			match entry.tag:
 				case "ClassEntry":
 					class_path = entry.attrib.get("class")
-					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, class_path)})
+					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.CLASS_ENTRY, get_value_of_path(class_path))})
 				case "FuncEntry":
 					func_path = entry.attrib.get("func")
-					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, func_path)})
+					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.FUNC_ENTRY, get_value_of_path(func_path))})
 				case "PageEntry":
 					page_path = app_path.joinpath(entry.attrib.get("path"))
 					app.entrypoints.update({entry.attrib.get("id"): swapp.AppEntrypoint(entry.attrib.get("id"), swapp.AppEntrypoint.PAGE_ENTRY, ElementTree.parse(page_path).getroot())})
@@ -438,7 +451,7 @@ def load_swapps() -> None:
 		retry = next_retry.copy()
 		next_retry.clear()
 
-def process_handler_calls(capp: swapp.PageHandler):
+def process_handler_calls(capp: swapp.PageHandlerCompat):
 	if "_sw_page_handler_calls" in capp.cdata:
 		for call in capp.cdata.get("_sw_page_handler_calls"):
 			func, *args = call
@@ -530,62 +543,74 @@ if __name__ == "__main__":
 	except ImportError:
 		print("Library APIs Unavalible!")
 
+	_page_entry_compat_mode = False
+
 	try:
 		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")
 		if not boot_app_name:
 			raise Exception("Boot App not defined!")
-		app_ctx_vars = {
-			"sw_username": username,
-		}
-		app_handler = swapp.AppHandler()
-		app_handler.cdata.update({
-			"sw_maindir": maindir,
-			"sw_librarydir": librarydir,
-		})
 		boot_app = installed_apps.get_app(boot_app_name)
 		if not boot_app:
 			raise Exception(f"Boot App {boot_app_name} not installed!")
-		app_handler.push_app(boot_app, context_vars=app_ctx_vars)
-		
-		while True:
-			current_app = app_handler.current_app
-			if current_app is None:
-				quit()
-				raise Exception("Somehow persisted past quit().")
-			if current_app.current_page is None:
-				app_handler.pop_app()
-				continue
-			page_context = swpage3.PageContext(current_app, app_handler, current_app.app_data)
-			page_context.app_data = current_app.cdata
-			page_context.global_data = app_handler.cdata
-			current_app.cdata.update({"_ctx_vars": app_ctx_vars})
-			#print("\033c", end="")
-			try:
-				rendered_page = swpage3.get_renderable(current_app.current_page.render(page_context)).render(page_context)
-				if rendered_page:
-					print(rendered_page)
-				process_handler_calls(current_app)
-				if len(page_context._handlers) > 0:
-					handler_to_call = None
-					while not handler_to_call:
-						try:
-							handler_to_call = int(input("> "))
-						except ValueError:
-							print("Invalid entry, try again.")
-						else:
-							h = page_context.get_handler(handler_to_call)
-							if h:
-								h()
+		if _page_entry_compat_mode:
+			app_ctx_vars = {
+				"sw_username": username,
+			}
+			app_handler = swapp.handlercompat.AppHandlerCompat()
+			app_handler.cdata.update({
+				"sw_maindir": maindir,
+				"sw_librarydir": librarydir,
+			})
+			
+			app_handler.push_app(boot_app, context_vars=app_ctx_vars)
+			
+			while True:
+				current_app = app_handler.current_app
+				if current_app is None:
+					quit()
+					raise Exception("Somehow persisted past quit().")
+				if current_app.current_page is None:
+					app_handler.pop_app()
+					continue
+				page_context = swpage3.PageContext(current_app, app_handler, current_app.app_data)
+				page_context.app_data = current_app.cdata
+				page_context.global_data = app_handler.cdata
+				current_app.cdata.update({"_ctx_vars": app_ctx_vars})
+				#print("\033c", end="")
+				try:
+					rendered_page = swpage3.get_renderable(current_app.current_page.render(page_context)).render(page_context)
+					if rendered_page:
+						print(rendered_page)
 					process_handler_calls(current_app)
-			except Exception as e:
-				#handle app crash
-				failedapp = app_handler.current_app.app_data
-				app_handler.pop_app()
-				if not app_handler.current_app:
-					raise
-				print(f"An uncaught error has occured in the following app: {failedapp.display_name} ({failedapp.name})")
-				print("Error code: " + type(e).__name__)
-				print(e)
+					if len(page_context._handlers) > 0:
+						handler_to_call = None
+						while not handler_to_call:
+							try:
+								handler_to_call = int(input("> "))
+							except ValueError:
+								print("Invalid entry, try again.")
+							else:
+								h = page_context.get_handler(handler_to_call)
+								if h:
+									h()
+						process_handler_calls(current_app)
+				except Exception as e:
+					#handle app crash
+					failedapp = app_handler.current_app.app_data
+					app_handler.pop_app()
+					if not app_handler.current_app:
+						raise
+					print(f"An uncaught error has occured in the following app: {failedapp.display_name} ({failedapp.name})")
+					print("Error code: " + type(e).__name__)
+					print(e)
+		else:
+			app_stack: swapp.AppStack = swapp.AppStack()
+			while app_stack.active or len(app_stack.background) > 0:
+				if not app_stack.active:
+					if len(app_stack.background) > 0:
+						break
+					app_stack.active = app_stack.background.pop() # push most recent backgrounded app into active
+
 	except KeyboardInterrupt:
 		print("Interrupted.")
 		quit()
