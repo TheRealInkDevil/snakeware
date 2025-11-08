@@ -459,31 +459,66 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 
 def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack, signal: swapp.signals.AppSignal, is_interupt: bool):
 	match signal.id:
-		case swapp.signals.AppSignal.SIG_EXIT_SUCCESS:
+		case swapp.signals.AppSignal.EXIT_SUCCESS:
 			running_app.status = swapp.APPSTATUS_EXITED_SUCCESS
+			signal.success = True
 			return False
-		case swapp.signals.AppSignal.SIG_EXIT_FAILURE:
+		case swapp.signals.AppSignal.EXIT_FAILURE:
 			running_app.status = swapp.APPSTATUS_EXITED_FAILURE
+			signal.success = True
 			return False
-		case swapp.signals.AppSignal.SIG_SUSPEND:
-			running_app.status = swapp.APPSTATUS_SUSPENDING
-			return False
-		case swapp.signals.AppSignal.SIG_APP_OPEN | swapp.signals.AppSignal.SIG_APP_START:
+		case swapp.signals.AppSignal.APP_OPEN:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
-			new_app = init_swapp(installed_apps.get_app(new_app_name), new_app_entry)
-			new_app.status = swapp.APPSTATUS_STARTING
-			app_stack.add_to_stack(new_app)
-			running_app.status = swapp.APPSTATUS_ENTERING_BACKGROUND
-			return False
-		case swapp.signals.AppSignal.SIG_APP_REPLACE:
+			new_app_meta = installed_apps.get_app(new_app_name)
+			try:
+				new_app = init_swapp(new_app_meta, new_app_entry)
+				new_app.status = swapp.APPSTATUS_STARTING
+				app_stack.add_to_stack(new_app)
+				running_app.status = swapp.APPSTATUS_ENTERING_BACKGROUND
+				signal.success = True
+				return False
+			except:
+				signal.success = False
+		case swapp.signals.AppSignal.APP_REPLACE:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
-			new_app = init_swapp(installed_apps.get_app(new_app_name), new_app_entry)
-			new_app.status = swapp.APPSTATUS_STARTING
-			app_stack.add_to_stack(new_app)
-			running_app.status = swapp.APPSTATUS_NONE
-			return False
+			new_app_meta = installed_apps.get_app(new_app_name)
+			try:
+				new_app = init_swapp(new_app_meta, new_app_entry)
+				new_app.status = swapp.APPSTATUS_STARTING
+				app_stack.add_to_stack(new_app)
+				running_app.status = swapp.APPSTATUS_NONE
+				signal.success = True
+				return False
+			except:
+				signal.success = False
+		case swapp.signals.AppSignal.APPDB_QUERY:
+			results = []
+			query_type = signal.data.get("type", "all")
+			query_name = signal.data.get("name")
+
+			if query_type == "all":
+				for app_name in installed_apps.apps:
+					app_meta = installed_apps.get_app(app_name, True)
+					if app_meta:
+						results.append({
+							"name": app_meta.name,
+							"dname": app_meta.display_name,
+							"desc": app_meta.desc,
+							"ver": app_meta.version,
+							"provides": app_meta.provides.copy(),
+							"entries": list(app_meta.entrypoints.keys())
+						})
+				signal.result.update({"apps": results})
+				signal.success = True
+				return True
+
+			if not query_name:
+				signal.success = False
+				return True
+			
+
 		case _:
 			print(f"[!] snakeware: Unhandled Signal {signal.id} from {running_app.app_metadata.name}")
 	return True
@@ -572,7 +607,7 @@ if __name__ == "__main__":
 			raise Exception(f"Boot App {boot_app_name} not installed!")
 	
 		app_stack: swapp.AppStack = swapp.AppStack()
-		boot_run = init_swapp(boot_app, "main")
+		boot_run = init_swapp(boot_app, "boot")
 		boot_run.status = swapp.APPSTATUS_BOOTING
 		app_stack.add_to_stack(boot_run)
 		while len(app_stack.running):
@@ -592,21 +627,24 @@ if __name__ == "__main__":
 						app.status = swapp.APPSTATUS_FOREGROUND
 						call_swapp_event(app, app_stack, swapp.AppEvent.LC_ENTERING_FOREGROUND)
 						active_apps += 1
+					case swapp.APPSTATUS_ENTERING_BACKGROUND:
+						app.status = swapp.APPSTATUS_BACKGROUND
+						call_swapp_event(app, app_stack, swapp.AppEvent.LC_ENTERING_FOREGROUND)
+						active_apps += 1
 					case swapp.APPSTATUS_FOREGROUND:
 						call_swapp_event(app, app_stack, swapp.AppEvent.LC_FRAME)
 						active_apps += 1
 					case swapp.APPSTATUS_BACKGROUND:
 						call_swapp_event(app, app_stack, swapp.AppEvent.LC_BACKGROUND_UPDATE)
-					case swapp.APPSTATUS_SUSPENDED:
-						pass
 					case _:
 						to_cleanup.append(app)
 			for clean in to_cleanup:
 				app_stack.running.remove(clean)
 			if active_apps < 1:
-				for app in reversed(app_stack):
+				for app in reversed(app_stack.running):
 					if app.status == swapp.APPSTATUS_BACKGROUND:
 						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
+						break
 
 
 	except KeyboardInterrupt:

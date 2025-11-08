@@ -12,6 +12,6 @@
     </Modules>
 
     <Entrypoints>
-        <ClassEntry id="main" class="snakeware.homeapp.HomeApp"/>
+        <ClassEntry id="launcher" class="snakeware.homeapp.HomeApp"/>
     </Entrypoints>
 </AppManifest>
