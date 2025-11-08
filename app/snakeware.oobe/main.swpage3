@@ -1,8 +1,0 @@
-<Page>
-    <VBox>
-        <Header text="Welcome to Snakeware!"/>
-        <Label text="This setup wizard will assist you in"/>
-        <Label text="getting Snakeware ready for your use."/>
-        <SwitchPageButton text="Begin Setup" path="./usersetup.swpage3"/>
-    </VBox>
-</Page>

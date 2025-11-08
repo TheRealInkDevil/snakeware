@@ -16,6 +16,6 @@
     </Depends>
 
     <Entrypoints>
-        <PageEntry id="main" path="main.swpage3"/>
+        
     </Entrypoints>
 </AppManifest>

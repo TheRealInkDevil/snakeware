@@ -12,7 +12,7 @@ if __name__ == "__main__":
 sys.path.append(str(maindir))
 
 #critical imports
-import swpage3, swapp, swapp.handlercompat, swapp.elements
+import swapp, swapp.signals
 
 #define other directories
 appdir: pathlib.Path = maindir.joinpath("app")
@@ -260,12 +260,12 @@ def get_value_of_path(pypath: str):
 	is_top_level = True
 	value = None
 	for dig in to_dig:
-		print(dig)
 		if is_top_level:
 			value = globals().get(dig)
 			is_top_level = False
 		else:
 			value = getattr(value, dig)
+	return value
 	
 
 def load_swapp(app_path: pathlib.Path):
@@ -317,8 +317,6 @@ def load_swapp(app_path: pathlib.Path):
 					if not entry.attrib.get("nocompile"):
 						appnames.append(entry.attrib.get("appid"))
 
-	swpage3.element_registry.create_scope(app.name)
-	swpage3.element_registry.push_scope(app.name)
 	code = manifest.find("Modules")
 	if code is not None:
 		def split_module_path(path: str) -> list[str]:
@@ -332,13 +330,15 @@ def load_swapp(app_path: pathlib.Path):
 		def attach_child_modules(module_path: str):
 			if module_path not in sys.modules:
 				return
-			
-			module = sys.modules[module_path]
-			if '.' not in module_path:
+			module_to_attach = sys.modules[module_path]
+			try:
+				parent_path, child_name = module_path.rsplit('.', 1)
+				attach_child_modules(parent_path)
+				parent_module = sys.modules[parent_path]
+				if not hasattr(parent_module, child_name):
+					setattr(parent_module, child_name, module_to_attach)
+			except ValueError:
 				return
-			parent_path, child_name = module_path.rsplit('.', 1)
-			attach_child_modules(parent_path)
-			setattr(module, child_name, module)
 		
 		fail = None
 		path_to_clean = []
@@ -380,6 +380,7 @@ def load_swapp(app_path: pathlib.Path):
 						module = importlib.util.module_from_spec(spec)
 						module.__path__ = []
 						sys.modules[mod_name] = module
+						globals().update({mod_name: module})
 						spec.loader.exec_module(module)
 						app.modules.update({mod_name: module})
 						modnames.append(mod_name)
@@ -391,6 +392,7 @@ def load_swapp(app_path: pathlib.Path):
 				if modd not in sys.modules:
 					dumb_mod = types.ModuleType(modd)
 					sys.modules[modd] = dumb_mod
+					globals().update({modd: dumb_mod})
 			for modd in mods_to_dummy:
 				attach_child_modules(modd)
 		finally:
@@ -422,8 +424,69 @@ def load_swapp(app_path: pathlib.Path):
 		for entry in page_inc:
 			if entry.tag == "Include":
 				app.page_includes.append(entry.attrib.get("appid"))
-	swpage3.element_registry.pop_scope()
 	return SwResult(True, "app_loaded", app)
+
+def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str):
+	entrypoint = app_meta.entrypoints.get(entrypoint_id)
+	if not entrypoint:
+		raise Exception(f"Entrypoint {entrypoint_id} Not Found for app {app_meta.name}")
+	match entrypoint.entry_type:
+		case swapp.AppEntrypoint.CLASS_ENTRY:
+			app: swapp.App = entrypoint.data()
+			running_app: swapp.RunningApp = swapp.RunningApp(app, app_meta)
+			return running_app
+		case swapp.AppEntrypoint.FUNC_ENTRY:
+			raise Exception("FUNC_ENTRY is not implemented currently")
+		case swapp.AppEntrypoint.PAGE_ENTRY:
+			raise Exception("PAGE_ENTRY is not implemented currently")
+
+def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, event_id: int, event_data: dict = None):
+	event_data = event_data if event_data else {}
+	app_event: swapp.AppEvent = swapp.AppEvent(event_id, event_data)
+	try:
+		if inspect.isgeneratorfunction(running_app.app.ev_signal):
+			for signal in running_app.app.ev_signal(app_event):
+				if type(signal) is swapp.signals.AppSignal:
+					sig_result = handle_swapp_signal(running_app, app_stack, signal, False)
+					if not sig_result:
+						break
+		else:
+			signal = running_app.app.ev_signal(app_event)
+			if type(signal) is swapp.signals.AppSignal:
+				handle_swapp_signal(running_app, app_stack, signal, False)
+	except swapp.signals.AppSignal as raised_signal:
+		handle_swapp_signal(running_app, app_stack, raised_signal, True)
+
+def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack, signal: swapp.signals.AppSignal, is_interupt: bool):
+	match signal.id:
+		case swapp.signals.AppSignal.SIG_EXIT_SUCCESS:
+			running_app.status = swapp.APPSTATUS_EXITED_SUCCESS
+			return False
+		case swapp.signals.AppSignal.SIG_EXIT_FAILURE:
+			running_app.status = swapp.APPSTATUS_EXITED_FAILURE
+			return False
+		case swapp.signals.AppSignal.SIG_SUSPEND:
+			running_app.status = swapp.APPSTATUS_SUSPENDING
+			return False
+		case swapp.signals.AppSignal.SIG_APP_OPEN | swapp.signals.AppSignal.SIG_APP_START:
+			new_app_name = signal.data.get("target")
+			new_app_entry = signal.data.get("entry", "main")
+			new_app = init_swapp(installed_apps.get_app(new_app_name), new_app_entry)
+			new_app.status = swapp.APPSTATUS_STARTING
+			app_stack.add_to_stack(new_app)
+			running_app.status = swapp.APPSTATUS_ENTERING_BACKGROUND
+			return False
+		case swapp.signals.AppSignal.SIG_APP_REPLACE:
+			new_app_name = signal.data.get("target")
+			new_app_entry = signal.data.get("entry", "main")
+			new_app = init_swapp(installed_apps.get_app(new_app_name), new_app_entry)
+			new_app.status = swapp.APPSTATUS_STARTING
+			app_stack.add_to_stack(new_app)
+			running_app.status = swapp.APPSTATUS_NONE
+			return False
+		case _:
+			print(f"[!] snakeware: Unhandled Signal {signal.id} from {running_app.app_metadata.name}")
+	return True
 
 installed_apps: swapp.AppDB = swapp.AppDB()
 
@@ -444,55 +507,12 @@ def load_swapps() -> None:
 				app.db = installed_apps
 				installed_apps.add_app(app)
 			else:
-				if retry[retry_pth] > 1000:
+				if retry[retry_pth] > 5:
 					print(f"Failed to load app from {retry_pth}")
 					continue
 				next_retry.update({retry_pth: retry[retry_pth] + 1})
 		retry = next_retry.copy()
 		next_retry.clear()
-
-def process_handler_calls(capp: swapp.PageHandlerCompat):
-	if "_sw_page_handler_calls" in capp.cdata:
-		for call in capp.cdata.get("_sw_page_handler_calls"):
-			func, *args = call
-			appdat: swapp.AppMetadata = capp.app_data
-			match func:
-				case "switch_page":
-					capp.push_page(ElementTree.parse(appdat.origin.joinpath(args[0])).getroot(), args=args[1:])
-				case "replace_page":
-					capp.replace_page(ElementTree.parse(appdat.origin.joinpath(args[0])).getroot(), args=args[1:])
-				case "switch_app":
-					app = installed_apps.get_app(args[0])
-					if not app:
-						raise Exception(f"E: App {args[0]} not installed.")
-					app_handler.push_app(app, "main" if len(args) < 2 else args[1], None if len(args) < 3 else args[2], None if len(args) < 4 else args[3])
-				case "replace_app":
-					app = installed_apps.get_app(args[0])
-					if not app:
-						raise Exception(f"E: App {args[0]} not installed.")
-					app_handler.replace_app(app, "main" if len(args) < 2 else args[1], None if len(args) < 3 else args[2], None if len(args) < 4 else args[3])
-				case "run_game":
-					id_to_launch = args[0]
-					for game in get_library():
-						if game.get("id") == id_to_launch:
-							if game.get("exec"):
-								run_game(game.get("exec"), game.get("origin"), game.get("name", game.get("id")))
-								break
-				case "patch_game":
-					id_to_launch = args[0]
-					for game in get_library():
-						if game.get("id") == id_to_launch:
-							patch_game(game.get("origin"), False)
-							break
-				case "reload_apps":
-					load_swapps()
-				case "sw_restart":
-					restart()
-				case "sw_quit":
-					quit()
-				case _:
-					print(f"Unknown SWCALL: {func}")
-		capp.cdata.pop("_sw_page_handler_calls")
 
 def get_userdata(src: pathlib.Path):
 	try:
@@ -543,8 +563,6 @@ if __name__ == "__main__":
 	except ImportError:
 		print("Library APIs Unavalible!")
 
-	_page_entry_compat_mode = False
-
 	try:
 		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")
 		if not boot_app_name:
@@ -552,64 +570,44 @@ if __name__ == "__main__":
 		boot_app = installed_apps.get_app(boot_app_name)
 		if not boot_app:
 			raise Exception(f"Boot App {boot_app_name} not installed!")
-		if _page_entry_compat_mode:
-			app_ctx_vars = {
-				"sw_username": username,
-			}
-			app_handler = swapp.handlercompat.AppHandlerCompat()
-			app_handler.cdata.update({
-				"sw_maindir": maindir,
-				"sw_librarydir": librarydir,
-			})
-			
-			app_handler.push_app(boot_app, context_vars=app_ctx_vars)
-			
-			while True:
-				current_app = app_handler.current_app
-				if current_app is None:
-					quit()
-					raise Exception("Somehow persisted past quit().")
-				if current_app.current_page is None:
-					app_handler.pop_app()
-					continue
-				page_context = swpage3.PageContext(current_app, app_handler, current_app.app_data)
-				page_context.app_data = current_app.cdata
-				page_context.global_data = app_handler.cdata
-				current_app.cdata.update({"_ctx_vars": app_ctx_vars})
-				#print("\033c", end="")
-				try:
-					rendered_page = swpage3.get_renderable(current_app.current_page.render(page_context)).render(page_context)
-					if rendered_page:
-						print(rendered_page)
-					process_handler_calls(current_app)
-					if len(page_context._handlers) > 0:
-						handler_to_call = None
-						while not handler_to_call:
-							try:
-								handler_to_call = int(input("> "))
-							except ValueError:
-								print("Invalid entry, try again.")
-							else:
-								h = page_context.get_handler(handler_to_call)
-								if h:
-									h()
-						process_handler_calls(current_app)
-				except Exception as e:
-					#handle app crash
-					failedapp = app_handler.current_app.app_data
-					app_handler.pop_app()
-					if not app_handler.current_app:
-						raise
-					print(f"An uncaught error has occured in the following app: {failedapp.display_name} ({failedapp.name})")
-					print("Error code: " + type(e).__name__)
-					print(e)
-		else:
-			app_stack: swapp.AppStack = swapp.AppStack()
-			while app_stack.active or len(app_stack.background) > 0:
-				if not app_stack.active:
-					if len(app_stack.background) > 0:
-						break
-					app_stack.active = app_stack.background.pop() # push most recent backgrounded app into active
+	
+		app_stack: swapp.AppStack = swapp.AppStack()
+		boot_run = init_swapp(boot_app, "main")
+		boot_run.status = swapp.APPSTATUS_BOOTING
+		app_stack.add_to_stack(boot_run)
+		while len(app_stack.running):
+			to_cleanup = []
+			active_apps = 0
+			for app in app_stack.running.copy():
+				match app.status:
+					case swapp.APPSTATUS_BOOTING:
+						app.status = swapp.APPSTATUS_NONE
+						call_swapp_event(app, app_stack, swapp.AppEvent.SW_BOOT)
+						active_apps += 1
+					case swapp.APPSTATUS_STARTING:
+						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
+						call_swapp_event(app, app_stack, swapp.AppEvent.LC_START)
+						active_apps += 1
+					case swapp.APPSTATUS_ENTERING_FOREGROUND:
+						app.status = swapp.APPSTATUS_FOREGROUND
+						call_swapp_event(app, app_stack, swapp.AppEvent.LC_ENTERING_FOREGROUND)
+						active_apps += 1
+					case swapp.APPSTATUS_FOREGROUND:
+						call_swapp_event(app, app_stack, swapp.AppEvent.LC_FRAME)
+						active_apps += 1
+					case swapp.APPSTATUS_BACKGROUND:
+						call_swapp_event(app, app_stack, swapp.AppEvent.LC_BACKGROUND_UPDATE)
+					case swapp.APPSTATUS_SUSPENDED:
+						pass
+					case _:
+						to_cleanup.append(app)
+			for clean in to_cleanup:
+				app_stack.running.remove(clean)
+			if active_apps < 1:
+				for app in reversed(app_stack):
+					if app.status == swapp.APPSTATUS_BACKGROUND:
+						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
+
 
 	except KeyboardInterrupt:
 		print("Interrupted.")

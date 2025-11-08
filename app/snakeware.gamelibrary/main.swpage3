@@ -1,8 +1,0 @@
-<Page>
-    <VBox>
-        <Header text="Library"/>
-        <BackButton text="Back"/>
-        <Label text="- + -"/>
-        <LibraryShelf/>
-    </VBox>
-</Page>

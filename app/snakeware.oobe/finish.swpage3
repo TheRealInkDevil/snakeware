@@ -1,7 +1,0 @@
-<Page>
-    <VBox>
-        <Header text="Finished!"/>
-        <Label text="You have completed Snakeware's setup."/>
-        <ReplaceAppButton text="Start Snakeware" app="snakeware.homeapp"/>
-    </VBox>
-</Page>

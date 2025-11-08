@@ -1,4 +1,4 @@
-import swpage3, types
+import types
 
 class AppMetadata:
     def __init__(self, origin):
@@ -43,8 +43,8 @@ class AppEntrypoint:
         return result
 
 class AppEvent:
-    LC_INIT = -1 # App Initialization
-    LC_START = 0 # App Startup; fired when brought to the foreground for the first time (before LC_ENTERING_FOREGROUND)
+    SW_BOOT = -1 # Boot App Startup
+    LC_START = 0 # App Startup (before LC_ENTERING_FOREGROUND and LC_ENTERING_BACKGROUND)
     LC_FRAME = 1 # App Frame Update
     LC_BACKGROUND_UPDATE = 2 # Background App Tick
     LC_RESUMING = 3 # App is Resuming
@@ -53,6 +53,7 @@ class AppEvent:
     LC_ENTERING_FOREGROUND = 6 # App is entering foreground, leaving background
     LC_CLOSE = 7 # Close has been requested
     LC_TERMINATING = 8 # App is about to be killed
+    LC_CLOSING = 9 # App is about to be killed
 
     def __init__(self, type: int, data: dict):
         self.type: int = type
@@ -60,20 +61,49 @@ class AppEvent:
 
 class App:
     def __init__(self):
-        self._suspended: bool = False
-        self._background: bool = False
-        self._started: bool = False
+        pass
 
     def ev_signal(self, event: AppEvent):
         pass
 
+APPSTATUS_NONE = 000
+APPSTATUS_BOOTING = 100
+APPSTATUS_STARTING = 101
+APPSTATUS_ENTERING_FOREGROUND = 102
+APPSTATUS_FOREGROUND = 103
+APPSTATUS_BACKGROUND_STARTING = 201
+APPSTATUS_ENTERING_BACKGROUND = 202
+APPSTATUS_BACKGROUND = 203
+APPSTATUS_SUSPENDING = 300
+APPSTATUS_SUSPENDED = 301
+APPSTATUS_EXITED_SUCCESS = 400
+APPSTATUS_EXITED_FAILURE = 401
+
+class RunningApp:
+    def __init__(self, app: App, app_metadata: AppMetadata):
+        self.app: App = app
+        self.app_metadata: AppMetadata = app_metadata
+        self.status: int = APPSTATUS_NONE
+
 class AppStack:
     def __init__(self):
-        self.active: dict[str, list[App]] = []
-        self.background: dict[str, list[App]] = []
-        self.suspended: dict[str, list[App]] = []
+        self.running: list[RunningApp] = []
     
+    def add_to_stack(self, app: RunningApp):
+        self.running.append(app)
 
+    def get_app_by_name(self, name):
+        for app in self.running:
+            if app.app_metadata.name == name:
+                return app
+        return None
+
+    def get_apps_by_name(self, name):
+        result = []
+        for app in self.running:
+            if app.app_metadata.name == name:
+                result.append(app)
+        return result
 
 class AppDB:
     def __init__(self):
