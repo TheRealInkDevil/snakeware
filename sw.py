@@ -518,6 +518,45 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 				signal.success = False
 				return True
 			
+			match query_type:
+				case "any":
+					app_meta = installed_apps.get_app(app_name)
+					if app_meta:
+						result = {
+							"name": app_meta.name,
+							"dname": app_meta.display_name,
+							"desc": app_meta.desc,
+							"ver": app_meta.version,
+							"provides": app_meta.provides.copy(),
+							"entries": list(app_meta.entrypoints.keys())
+						}
+						signal.result.update({"app": result})
+						signal.success = True
+						return True
+					else:
+						signal.success = False
+						return True
+				case "exact":
+					app_meta = installed_apps.get_app(app_name, True)
+					if app_meta:
+						result = {
+							"name": app_meta.name,
+							"dname": app_meta.display_name,
+							"desc": app_meta.desc,
+							"ver": app_meta.version,
+							"provides": app_meta.provides.copy(),
+							"entries": list(app_meta.entrypoints.keys())
+						}
+						signal.result.update({"app": result})
+						signal.success = True
+						return True
+					else:
+						signal.success = False
+						return True
+
+				case _:
+					signal.success = False
+					return True
 
 		case _:
 			print(f"[!] snakeware: Unhandled Signal {signal.id} from {running_app.app_metadata.name}")
@@ -544,33 +583,11 @@ def load_swapps() -> None:
 			else:
 				if retry[retry_pth] > 5:
 					print(f"Failed to load app from {retry_pth}")
+					print(result.exception)
 					continue
 				next_retry.update({retry_pth: retry[retry_pth] + 1})
 		retry = next_retry.copy()
 		next_retry.clear()
-
-def get_userdata(src: pathlib.Path):
-	try:
-		from snakeware.apis.user import SwUser
-		with SwUser(userfile) as udat:
-			userdata = udat.getall()
-			return userdata
-	except ImportError:
-		print("E: Snakeware User API not installed!")
-		return {}
-	except:
-		print("E: Snakeware failed to get user data!")
-		return {}
-
-def save_userdata(src: pathlib.Path, userdat: dict):
-	try:
-		from snakeware.apis.user import SwUser
-		with SwUser(userfile) as udat:
-			userdata = udat.getall()
-	except ImportError:
-		print("E: Snakeware User API not installed!")
-	except:
-		print("E: Snakeware failed to save user data!")
 
 if __name__ == "__main__":
 	print("Starting Snakeware 3.0...")
@@ -581,22 +598,6 @@ if __name__ == "__main__":
 
 	get_sbefiles()
 	load_swapps()
-
-	udatready = False
-
-	userdata = get_userdata(userfile)
-
-	#get username for session
-	username = userdata.get("name")
-
-	try:
-		from snakeware.apis.library import *
-		load_library(librarydir)
-		library = get_library()
-		if len(library) < 1:
-			build_library(librarydir)
-	except ImportError:
-		print("Library APIs Unavalible!")
 
 	try:
 		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")

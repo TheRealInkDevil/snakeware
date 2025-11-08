@@ -1,5 +1,5 @@
 import swapp, swapp.signals
-from snakeware.apis import user
+from snakeware.apis.user import SwUser
 
 class Boot2(swapp.App):
     def __init__(self):
@@ -14,6 +14,12 @@ class Boot2(swapp.App):
                 if not app_fetch.success:
                     print("BOOT2 Error: Could not query apps.")
                     raise swapp.signals.AppSignal(swapp.signals.AppSignal.EXIT_FAILURE)
-                raise swapp.signals.AppSignal(swapp.signals.AppSignal.APP_REPLACE, {"target": "snakeware.homeapp", "entry": "launcher"})
+                with SwUser("user.json") as user:
+                    target_homeapp = user.get("homeapp", "snakeware.homeapp")
+                    homeapp = None
+                    for app in app_fetch.result.get("apps", []):
+                        if app["name"] == target_homeapp:
+                            raise swapp.signals.AppSignal(swapp.signals.AppSignal.APP_REPLACE, {"target": target_homeapp, "entry": "launcher"})
+                    raise swapp.signals.AppSignal(swapp.signals.AppSignal.EXIT_FAILURE)
             case _:
                 raise swapp.signals.AppSignal(swapp.signals.AppSignal.EXIT_FAILURE)
