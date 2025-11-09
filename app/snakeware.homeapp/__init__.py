@@ -1,4 +1,4 @@
-import swapp, swapp.signals
+import swapp, swapp.signals, json, pathlib
 from snakeware.apis.user import SwUser
 
 class HomeApp(swapp.App):
@@ -6,12 +6,40 @@ class HomeApp(swapp.App):
         self.current_page = "home"
         self.recent_apps = []
 
+    def _read_state_files(self):
+        storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
+        yield storage_dir_signal
+        if storage_dir_signal.success:
+            storage_dir = pathlib.Path(storage_dir_signal.result.get("folder"))
+            recentsfile = storage_dir.joinpath("recentapps.json")
+            if recentsfile.is_file():
+                with open(recentsfile) as recentsf:
+                    try:
+                        self.recent_apps = json.load(recentsf)
+                    except Exception as e:
+                        self.recent_apps = []
+
+    def _save_state_files(self):
+        storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
+        yield storage_dir_signal
+        if storage_dir_signal.success:
+            storage_dir = pathlib.Path(storage_dir_signal.result.get("folder"))
+            recentsfile = storage_dir.joinpath("recentapps.json")
+            with open(recentsfile, "w") as recentsf:
+                try:
+                    json.dump(self.recent_apps, recentsf)
+                except Exception as e:
+                    print(e)
+
     def ev_signal(self, event):
         match event.type:
             case swapp.AppEvent.LC_ENTERING_FOREGROUND:
                 self.current_page = "home"
-                with SwUser("user.json") as user:
-                    self.recent_apps = user.get("snakeware.homeapp.recentapps", [])
+                for sig in self._read_state_files():
+                    yield sig
+            case swapp.AppEvent.LC_ENTERING_BACKGROUND:
+                for sig in self._save_state_files():
+                    yield sig
             case swapp.AppEvent.LC_FRAME:
                 buttons = []
                 def create_button(act, label):
@@ -49,16 +77,18 @@ class HomeApp(swapp.App):
                             if not open_app_signal.success:
                                 print("Could not open app. Very sad.")
                         if action[0] == "open_app_w_dname":
-                            with SwUser("user.json") as user:
-                                self.recent_apps.append({"name": action[1], "dname": action[2]})
-                                if len(self.recent_apps) > 5:
-                                    self.recent_apps = recent_apps[0:5]
-                                user.set("snakeware.homeapp.recentapps", self.recent_apps)
+                            self.recent_apps.append({"name": action[1], "dname": action[2]})
+                            if len(self.recent_apps) > 5:
+                                self.recent_apps = recent_apps[0:5]
+                            for sig in self._save_state_files():
+                                yield sig
                             open_app_signal = swapp.signals.AppSignal(swapp.signals.APP_OPEN, {"target": action[1]})
                             yield open_app_signal
                             if not open_app_signal.success:
                                 print("Could not open app. Very sad.")
                         elif action[0] == "shutdown":
+                            for sig in self._save_state_files():
+                                yield sig
                             raise swapp.signals.AppSignal(swapp.signals.EXIT_SUCCESS)
                         elif action[0] == "switch_page":
                             self.current_page = action[1]

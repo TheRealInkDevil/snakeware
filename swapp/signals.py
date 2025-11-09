@@ -7,6 +7,8 @@ APP_REPLACE = 202 # App requests an app to be replaced with this one
 # Result: "apps" - array of resulting apps in the form of AppDict
 # AppDict: "name" - app name; "dname" - app display name; "desc" - app description; "ver" - app version; "provides" - array of app provides; "entries" - array of app entry points;
 APPDB_QUERY = 300
+FS_GET_APPSTORAGE = 400
+FS_GET_SHAREDSTORAGE = 401
 
 class AppSignal(Exception):
     EXIT_SUCCESS = EXIT_SUCCESS # App is gracefully exiting.

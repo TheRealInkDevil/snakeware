@@ -16,6 +16,9 @@ import swapp, swapp.signals
 
 #define other directories
 appdir: pathlib.Path = maindir.joinpath("app")
+storagedir: pathlib.Path = maindir.joinpath("storage")
+appstoragedir: pathlib.Path = storagedir.joinpath("app")
+sharedstoragedir: pathlib.Path = storagedir.joinpath("shared")
 cfgfile: pathlib.Path = maindir.joinpath("sw.cfg")
 userfile: pathlib.Path = maindir.joinpath("user.json")
 sbedir: pathlib.Path = maindir.joinpath("sbe")
@@ -40,16 +43,7 @@ sbeallfiles: dict[str, pathlib.Path] = {
 }
 sbefiles: dict[str, pathlib.Path] = {}
 
-#library and pages/menus (OBSOLETE)
-librarydir: pathlib.Path = maindir.joinpath("library")
-#library_meta = {}
-#library: list[dict] = []
-#launch_option = "quit"
-
 subprocs: list[dict] = []
-
-os.makedirs(librarydir, exist_ok=True)
-os.makedirs(steamsettingsdir, exist_ok=True)
 
 class SwResult:
 	def __init__(self, success: bool, result_code: str, return_value = None, exception: Exception = None):
@@ -129,52 +123,6 @@ def number_input(ask: str) -> int:
 			return int(input(ask))
 		except ValueError:
 			print("that's not a number, try again.")
-
-#Library Functions ported from Snakeware APIs 1.0.0
-
-library_meta = {}
-
-def get_library() -> list:
-	return library_meta.get("library", [])
-
-def get_library_meta() -> list:
-	return library_meta
-
-def build_library(librarydir: pathlib.Path) -> None:
-	library_meta.setdefault("library", [])
-	get_library().clear()
-	for dirpath in librarydir.iterdir():
-		if dirpath.is_dir():
-			for filename in dirpath.iterdir():
-				if filename.is_file():
-					if filename.suffix == ".swgame" or filename.name == ".swgame":
-						filename = dirpath.joinpath(filename)
-						with open(filename) as file:
-							game: dict = json.load(file)
-							if "id" not in game:
-								game.update({"id", game.get("name")})
-							if "name" not in game:
-								game.update({"name", game.get("id")})
-							if game.get("id"):
-								game.update({"origin": str(dirpath)})
-								get_library().append(game)
-	dump_library(librarydir)
-
-def dump_library(librarydir: pathlib.Path):
-	library_meta.update({"origin": str(librarydir)})
-	lib_dump = librarydir.joinpath("library.db")
-	with open(lib_dump, "w") as file:
-		json.dump(library_meta, file)
-
-def load_library(librarydir: pathlib.Path):
-	library_meta.clear()
-	lib_dump = librarydir.joinpath("library.db")
-	try:
-		with open(lib_dump, "r") as file:
-			library_meta.update(json.load(file))
-			library_meta.update({"origin": str(librarydir)})
-	except:
-		pass
 
 #gen settings for games
 def generate_steam_settings() -> None:
@@ -459,15 +407,15 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 
 def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack, signal: swapp.signals.AppSignal, is_interupt: bool):
 	match signal.id:
-		case swapp.signals.AppSignal.EXIT_SUCCESS:
+		case swapp.signals.EXIT_SUCCESS:
 			running_app.status = swapp.APPSTATUS_EXITED_SUCCESS
 			signal.success = True
 			return False
-		case swapp.signals.AppSignal.EXIT_FAILURE:
+		case swapp.signals.EXIT_FAILURE:
 			running_app.status = swapp.APPSTATUS_EXITED_FAILURE
 			signal.success = True
 			return False
-		case swapp.signals.AppSignal.APP_OPEN:
+		case swapp.signals.APP_OPEN:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
 			new_app_meta = installed_apps.get_app(new_app_name)
@@ -480,7 +428,7 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 				return False
 			except:
 				signal.success = False
-		case swapp.signals.AppSignal.APP_REPLACE:
+		case swapp.signals.APP_REPLACE:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
 			new_app_meta = installed_apps.get_app(new_app_name)
@@ -493,7 +441,20 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 				return False
 			except:
 				signal.success = False
-		case swapp.signals.AppSignal.APPDB_QUERY:
+		case swapp.signals.FS_GET_APPSTORAGE:
+			data_folder_name = running_app.app_metadata.name
+			data_folder = appstoragedir / data_folder_name
+			data_folder.mkdir(parents=True, exist_ok=True)
+			signal.result.update({"folder": str(data_folder)})
+			signal.success = True
+			return True
+		case swapp.signals.FS_GET_SHAREDSTORAGE:
+			data_folder = sharedstoragedir
+			data_folder.mkdir(parents=True, exist_ok=True)
+			signal.result.update({"folder": str(data_folder)})
+			signal.success = True
+			return True
+		case swapp.signals.APPDB_QUERY:
 			results = []
 			query_type = signal.data.get("type", "all")
 			query_name = signal.data.get("name")
