@@ -33,14 +33,14 @@ class HomeApp(swapp.App):
 
     def ev_signal(self, event):
         match event.type:
-            case swapp.AppEvent.LC_ENTERING_FOREGROUND:
+            case swapp.AppEvent.APP_ENTERING_FOREGROUND:
                 self.current_page = "home"
                 for sig in self._read_state_files():
                     yield sig
-            case swapp.AppEvent.LC_ENTERING_BACKGROUND:
+            case swapp.AppEvent.APP_ENTERING_BACKGROUND:
                 for sig in self._save_state_files():
                     yield sig
-            case swapp.AppEvent.LC_FRAME:
+            case swapp.AppEvent.APP_FRAME:
                 buttons = []
                 def create_button(act, label):
                     buttons.append(act)
@@ -79,7 +79,7 @@ class HomeApp(swapp.App):
                         if action[0] == "open_app_w_dname":
                             self.recent_apps.append({"name": action[1], "dname": action[2]})
                             if len(self.recent_apps) > 5:
-                                self.recent_apps = recent_apps[0:5]
+                                self.recent_apps = self.recent_apps[0:5]
                             for sig in self._save_state_files():
                                 yield sig
                             open_app_signal = swapp.signals.AppSignal(swapp.signals.APP_OPEN, {"target": action[1]})

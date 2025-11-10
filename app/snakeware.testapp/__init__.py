@@ -6,9 +6,7 @@ class TestingApp(swapp.App):
 
     def ev_signal(self, event):
         match event.type:
-            case swapp.AppEvent.LC_ENTERING_FOREGROUND:
-                pass
-            case swapp.AppEvent.LC_FRAME:
+            case swapp.AppEvent.APP_FRAME:
                 buttons = []
                 def create_button(act, label):
                     buttons.append(act)

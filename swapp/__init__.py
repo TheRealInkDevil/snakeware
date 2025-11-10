@@ -43,22 +43,14 @@ class AppEntrypoint:
         return result
 
 class AppEvent:
-    SW_BOOT = -1 # Boot App Startup
-    SNAKEWARE_BOOTUP = -1
-    LC_START = 0 # App Startup (before LC_ENTERING_FOREGROUND and LC_ENTERING_BACKGROUND)
-    APP_STARTING = 0
-    LC_FRAME = 1 # App Frame Update
-    APP_FRAME = 1
-    LC_BACKGROUND_UPDATE = 2 # Background App Tick
-    APP_FRAME_BACKGROUND = 2
-    LC_RESUMING = 3 # App is Resuming
-    APP_RESUMING = 3
-    LC_SUSPENDING = 4 # App is Pausing (Suspending)
-    LC_ENTERING_BACKGROUND = 5 # App is entering background, leaving foreground
-    LC_ENTERING_FOREGROUND = 6 # App is entering foreground, leaving background
-    LC_CLOSE = 7 # Close has been requested
-    LC_TERMINATING = 8 # App is about to be killed
-    LC_CLOSING = 9 # App is about to be killed
+    SNAKEWARE_BOOTUP = -1 # Boot App Startup
+    APP_STARTING = 0 # App Startup (before LC_ENTERING_FOREGROUND and LC_ENTERING_BACKGROUND)
+    APP_FRAME = 1 # App Frame (Foreground)
+    APP_FRAME_BACKGROUND = 2 # App Frame (Background)
+    APP_RESUMING = 3 # App is Resuming
+    APP_SUSPENDING = 4 # App is Pausing (Suspending)
+    APP_ENTERING_BACKGROUND = 5 # App is entering background, leaving foreground
+    APP_ENTERING_FOREGROUND = 6 # App is entering foreground, leaving background
 
     def __init__(self, type: int, data: dict):
         self.type: int = type
