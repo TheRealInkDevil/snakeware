@@ -1,5 +1,5 @@
 # Snakeware
-Snakeware is a app runtime.
+Snakeware is an app runtime.
 
 ## Running Snakeware
 ### Windows + Linux
