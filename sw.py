@@ -93,10 +93,6 @@ def stop_subprocs(no_escape: bool = True, force: bool = False):
 def quit():
 	sys.exit(0)
 
-def restart():
-	subprocess.Popen(sys.orig_argv)
-	sys.exit(0)
-
 #get file paths for files
 def get_sbefiles(experimental: bool = False) -> None:
 	if experimental:
@@ -579,25 +575,25 @@ if __name__ == "__main__":
 				match app.status:
 					case swapp.APPSTATUS_BOOTING:
 						app.status = swapp.APPSTATUS_NONE
-						call_swapp_event(app, app_stack, swapp.AppEvent.SW_BOOT)
+						call_swapp_event(app, app_stack, swapp.AppEvent.SNAKEWARE_BOOTUP)
 						active_apps += 1
 					case swapp.APPSTATUS_STARTING:
 						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.LC_START)
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_STARTING)
 						active_apps += 1
 					case swapp.APPSTATUS_ENTERING_FOREGROUND:
 						app.status = swapp.APPSTATUS_FOREGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.LC_ENTERING_FOREGROUND)
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_ENTERING_FOREGROUND)
 						active_apps += 1
 					case swapp.APPSTATUS_ENTERING_BACKGROUND:
 						app.status = swapp.APPSTATUS_BACKGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.LC_ENTERING_FOREGROUND)
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_ENTERING_BACKGROUND)
 						active_apps += 1
 					case swapp.APPSTATUS_FOREGROUND:
-						call_swapp_event(app, app_stack, swapp.AppEvent.LC_FRAME)
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_FRAME)
 						active_apps += 1
 					case swapp.APPSTATUS_BACKGROUND:
-						call_swapp_event(app, app_stack, swapp.AppEvent.LC_BACKGROUND_UPDATE)
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_FRAME_BACKGROUND)
 					case _:
 						to_cleanup.append(app)
 			for clean in to_cleanup:
@@ -617,10 +613,8 @@ if __name__ == "__main__":
 		print("A fatal error has occured, and Snakeware has stopped.")
 		print("Error code: " + type(e).__name__)
 		print(e)
-		res = input("[R]estart or [S]hutdown? > ").lower()
+		res = input("Press return to shutdown > ").lower()
 		if res == "raise":
 			raise
-		elif res.startswith("r"):
-			restart()
 		else:
 			quit()
