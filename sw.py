@@ -19,6 +19,7 @@ appdir: pathlib.Path = maindir.joinpath("app")
 storagedir: pathlib.Path = maindir.joinpath("storage")
 appstoragedir: pathlib.Path = storagedir.joinpath("app")
 sharedstoragedir: pathlib.Path = storagedir.joinpath("shared")
+apppermsfile: pathlib.Path = maindir.joinpath("app_permissions.priv")
 cfgfile: pathlib.Path = maindir.joinpath("sw.cfg")
 userfile: pathlib.Path = maindir.joinpath("user.json")
 sbedir: pathlib.Path = maindir.joinpath("sbe")
@@ -526,6 +527,7 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 	return True
 
 installed_apps: swapp.AppDB = swapp.AppDB()
+app_perms: dict = {}
 
 def load_swapps() -> None:
 	pth = appdir
@@ -552,6 +554,16 @@ def load_swapps() -> None:
 		retry = next_retry.copy()
 		next_retry.clear()
 
+def load_app_perms():
+	app_perms.clear()
+	if apppermsfile.is_file():
+		with open(apppermsfile) as apfile:
+			app_perms.update(json.load(apfile))
+
+def save_app_perms():
+	with open(apppermsfile, "w") as apfile:
+		json.dump(app_perms, apfile)
+
 if __name__ == "__main__":
 	print("Starting Snakeware 3.0...")
 
@@ -561,6 +573,8 @@ if __name__ == "__main__":
 
 	get_sbefiles()
 	load_swapps()
+	load_app_perms()
+	save_app_perms()
 
 	try:
 		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")
