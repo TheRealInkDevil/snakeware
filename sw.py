@@ -376,7 +376,7 @@ def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str):
 		raise Exception(f"Entrypoint {entrypoint_id} Not Found for app {app_meta.name}")
 	match entrypoint.entry_type:
 		case swapp.AppEntrypoint.CLASS_ENTRY:
-			app: swapp.App = entrypoint.data()
+			app: swapp.App = entrypoint.data(entrypoint_id)
 			running_app: swapp.RunningApp = swapp.RunningApp(app, app_meta)
 			return running_app
 		case swapp.AppEntrypoint.FUNC_ENTRY:
@@ -400,6 +400,12 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 				handle_swapp_signal(running_app, app_stack, signal, False)
 	except swapp.signals.AppSignal as raised_signal:
 		handle_swapp_signal(running_app, app_stack, raised_signal, True)
+	except Exception as e:
+		running_app.status = swapp.APPSTATUS_NONE
+		print(f"Unfortunately, {running_app.app_metadata.display_name} has stopped.\n" +
+		f"Error code: {type(e).__name__}\n" +
+		f"{str(e)}")
+		input("Press return to exit > ")
 
 def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack, signal: swapp.signals.AppSignal, is_interupt: bool):
 	match signal.id:

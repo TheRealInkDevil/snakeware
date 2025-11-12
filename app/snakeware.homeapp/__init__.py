@@ -2,7 +2,8 @@ import swapp, swapp.signals, json, pathlib
 from snakeware.apis.user import SwUser
 
 class HomeApp(swapp.App):
-    def __init__(self):
+    def __init__(self, entrypoint):
+        super().__init__(entrypoint)
         self.current_page = "home"
         self.recent_apps = []
 

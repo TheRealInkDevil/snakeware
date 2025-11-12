@@ -57,20 +57,23 @@ class AppEvent:
         self.data: dict = data.copy() if data else dict()
 
 class App:
-    def __init__(self):
+    def __init__(self, entrypoint):
         pass
 
     def ev_signal(self, event: AppEvent):
         pass
 
 APPSTATUS_NONE = 000
+
 APPSTATUS_BOOTING = 100
 APPSTATUS_STARTING = 101
 APPSTATUS_ENTERING_FOREGROUND = 102
 APPSTATUS_FOREGROUND = 103
+
 APPSTATUS_BACKGROUND_STARTING = 201
 APPSTATUS_ENTERING_BACKGROUND = 202
 APPSTATUS_BACKGROUND = 203
+
 APPSTATUS_EXITED_SUCCESS = 400
 APPSTATUS_EXITED_FAILURE = 401
 APPSTATUS_EXITING_SUCCESS = 402

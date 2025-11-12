@@ -2,8 +2,8 @@ import swapp, swapp.signals
 from snakeware.apis.user import SwUser
 
 class Boot2(swapp.App):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, entrypoint):
+        super().__init__(entrypoint)
     
     def ev_signal(self, event):
         match event.type:
