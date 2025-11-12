@@ -78,7 +78,15 @@ class HomeApp(swapp.App):
                             if not open_app_signal.success:
                                 print("Could not open app. Very sad.")
                         if action[0] == "open_app_w_dname":
-                            self.recent_apps.append({"name": action[1], "dname": action[2]})
+                            append_app = True
+                            for app in self.recent_apps:
+                                if app.get("name") == action[1]:
+                                    append_app = False
+                                    break
+                            
+                            if append_app:
+                                self.recent_apps.append({"name": action[1], "dname": action[2]})
+                            
                             if len(self.recent_apps) > 5:
                                 self.recent_apps = self.recent_apps[0:5]
                             for sig in self._save_state_files():
