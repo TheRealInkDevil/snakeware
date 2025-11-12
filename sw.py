@@ -409,6 +409,7 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 		input("Press return to exit > ")
 
 def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack, signal: swapp.signals.AppSignal, is_interupt: bool):
+	perms = app_perms.get(running_app.app_metadata.name, [])
 	match signal.id:
 		case swapp.signals.EXIT_SUCCESS:
 			running_app.status = swapp.APPSTATUS_EXITED_SUCCESS
@@ -455,6 +456,14 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			data_folder = sharedstoragedir
 			data_folder.mkdir(parents=True, exist_ok=True)
 			signal.result.update({"folder": str(data_folder)})
+			signal.success = True
+			return True
+		case swapp.signals.FS_GET_USERDATA_FILE:
+			if "fs.userdata.access" not in perms:
+				signal.success = False
+				return True
+			
+			signal.result.update({"file": userfile})
 			signal.success = True
 			return True
 		case swapp.signals.APPDB_QUERY:

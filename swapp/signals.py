@@ -9,6 +9,7 @@ APP_REPLACE = 202 # App requests an app to be replaced with this one
 APPDB_QUERY = 300
 FS_GET_APPSTORAGE = 400
 FS_GET_SHAREDSTORAGE = 401
+FS_GET_USERDATA_FILE = 402
 
 class AppSignal(Exception):
     def __init__(self, id: int, data: dict = None):
