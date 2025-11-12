@@ -20,29 +20,7 @@ storagedir: pathlib.Path = maindir.joinpath("storage")
 appstoragedir: pathlib.Path = storagedir.joinpath("app")
 sharedstoragedir: pathlib.Path = storagedir.joinpath("shared")
 apppermsfile: pathlib.Path = maindir.joinpath("app_permissions.priv")
-cfgfile: pathlib.Path = maindir.joinpath("sw.cfg")
 userfile: pathlib.Path = maindir.joinpath("user.json")
-sbedir: pathlib.Path = maindir.joinpath("sbe")
-steamlessdir: pathlib.Path = maindir.joinpath("steamless")
-steamless: pathlib.Path = steamlessdir.joinpath("Steamless.CLI.exe")
-steamsettingsdir: pathlib.Path = pathlib.Path(pathlib.Path.home(), "AppData/Roaming/GSE Saves/settings/")
-steamsettings: dict[str, pathlib.Path] = {
-	"config.main": steamsettingsdir.joinpath("configs.main.ini"),
-	"config.user": steamsettingsdir.joinpath("configs.user.ini"),
-	"config.app": steamsettingsdir.joinpath("configs.app.ini"),
-	"config.overlay": steamsettingsdir.joinpath("configs.overlay.ini"),
-}
-sbeallfiles: dict[str, pathlib.Path] = {
-	"steam_api": sbedir.joinpath("regular", "x32", "steam_api.dll"),
-	"steam_api64": sbedir.joinpath("regular", "x64", "steam_api64.dll"),
-	"steam_api_experimental": sbedir.joinpath("experimental", "x32", "steam_api.dll"),
-	"steam_api64_experimental": sbedir.joinpath("experimental", "x64", "steam_api64.dll"),
-	"generate_interfaces": sbedir.joinpath("tools", "generate_interfaces", "generate_interfaces_x32.exe"),
-	"generate_interfaces64": sbedir.joinpath("tools", "generate_interfaces", "generate_interfaces_x64.exe"),
-	"lobby_connect": sbedir.joinpath("tools", "lobby_connect", "lobby_connect_x32.exe"),
-	"lobby_connect64": sbedir.joinpath("tools", "lobby_connect", "lobby_connect_x64.exe")
-}
-sbefiles: dict[str, pathlib.Path] = {}
 
 subprocs: list[dict] = []
 
@@ -55,10 +33,6 @@ class SwResult:
 	
 	def __bool__(self):
 		return self.success
-
-#create blank config
-if not cfgfile.exists():
-	open(cfgfile, "x").close()
 
 def reg_subproc(proc: subprocess.Popen, name: str, type: str):
 	def wait_for_subproc(p: dict):
@@ -94,25 +68,6 @@ def stop_subprocs(no_escape: bool = True, force: bool = False):
 def quit():
 	sys.exit(0)
 
-#get file paths for files
-def get_sbefiles(experimental: bool = False) -> None:
-	if experimental:
-		sbefiles.update({
-			"steam_api": sbeallfiles.get("steam_api_experimental"),
-			"steam_api64": sbeallfiles.get("steam_api64_experimental"),
-		})
-	else:
-		sbefiles.update({
-			"steam_api": sbeallfiles.get("steam_api"),
-			"steam_api64": sbeallfiles.get("steam_api64"),
-		})
-	sbefiles.update({
-		"generate_interfaces": sbeallfiles.get("generate_interfaces"),
-		"generate_interfaces64": sbeallfiles.get("generate_interfaces64"),
-		"lobby_connect": sbeallfiles.get("lobby_connect"),
-		"lobby_connect64": sbeallfiles.get("lobby_connect64"),
-	})
-
 #convert to number
 def number_input(ask: str) -> int:
 	while True:
@@ -120,83 +75,6 @@ def number_input(ask: str) -> int:
 			return int(input(ask))
 		except ValueError:
 			print("that's not a number, try again.")
-
-#gen settings for games
-def generate_steam_settings() -> None:
-	global cfg, steamsettings, username
-	user = configparser.ConfigParser()
-	if steamsettings.get("config.user").is_file():
-		user.read(steamsettings.get("config.user"))
-	if not user.has_section("user::general"):
-		user.add_section("user::general")
-	user.set("user::general", "account_name", username)
-	with open(steamsettings.get("config.user"), "w") as cfgtmp:
-		user.write(cfgtmp)
-	main = configparser.ConfigParser()
-	if steamsettings.get("config.main").is_file():
-		main.read(steamsettings.get("config.main"))
-	if not main.has_section("main::stats"):
-		main.add_section("main::stats")
-	main.set("main::stats", "allow_unknown_stats", "1")
-	if not main.has_section("main::connectivity"):
-		main.add_section("main::connectivity")
-	main.set("main::connectivity", "disable_lan_only", "1")
-	if not main.has_section("main::misc"):
-		main.add_section("main::misc")
-	main.set("main::misc", "enable_steam_preowned_ids", "1")
-	with open(steamsettings.get("config.main"), "w") as cfgtmp:
-		main.write(cfgtmp)
-	overlay = configparser.ConfigParser()
-	if steamsettings.get("config.overlay").is_file():
-		overlay.read(steamsettings.get("config.overlay"))
-	if not overlay.has_section("overlay::general"):
-		overlay.add_section("overlay::general")
-	overlay.set("overlay::general", "enable_experimental_overlay", "1")
-	with open(steamsettings.get("config.overlay"), "w") as cfgtmp:
-		overlay.write(cfgtmp)
-
-#patch games
-#steamless is slow, use option to skip if not needed
-def patch_game(gamedir: pathlib.Path, skip_steamless: bool = True) -> None:
-	global sbefiles, steamless
-	gamedir = pathlib.Path(gamedir)
-	get_sbefiles()
-	for dirpath, _, filenames in gamedir.walk():
-		for filename in filenames:
-			if filename == "steam_api.dll":
-				if not filecmp.cmp(dirpath.joinpath(filename), sbefiles.get("steam_api"), shallow=False):
-					#print("Patching steam_api...")
-					shutil.copyfile(sbefiles.get("steam_api"), dirpath.joinpath(filename))
-			elif filename == "steam_api64.dll":
-				if not filecmp.cmp(dirpath.joinpath(filename), sbefiles.get("steam_api64"), shallow=False):
-					#print("Patching steam_api64...")
-					shutil.copyfile(sbefiles.get("steam_api64"), dirpath.joinpath(filename))
-			elif filename.endswith(".exe"):
-				if not skip_steamless:
-					#print("Running Steamless...")
-					subprocess.run([steamless, dirpath.joinpath(filename), "--quiet"], cwd=dirpath, capture_output=True)
-					filename_unpacked = dirpath.joinpath(filename + ".unpacked.exe")
-					if filename_unpacked.exists():
-						shutil.move(dirpath.joinpath(filename_unpacked), dirpath.joinpath(filename))
-	generate_steam_settings()
-
-def run_game(exec: list, origin: str, name: str):
-	print("Preparing " + name + "...")
-	patch_game(origin)
-	generate_steam_settings()
-	print(f"Running {name}... (if it doesn't work, run the patcher!)")
-	with open(pathlib.Path(origin, "stdout.log"), "w") as stdoutfile:
-		reg_subproc(subprocess.Popen(exec, cwd=origin, stdout=stdoutfile, shell=True), name, "game")
-
-#save config
-def save_config() -> None:
-	global cfg, cfgfile, username
-	if not cfg.has_section("user"):
-		cfg.add_section("user")
-	if username:
-		cfg.set("user", "name", username)
-	with open(cfgfile, "w") as cfgtmp:
-		cfg.write(cfgtmp)
 
 SWAPP_SDK_CURRENT_VERSION = 1
 
@@ -576,19 +454,12 @@ def save_app_perms():
 if __name__ == "__main__":
 	print("Starting Snakeware 3.0...")
 
-	#get config
-	cfg: configparser.ConfigParser = configparser.ConfigParser()
-	cfg.read(cfgfile)
-
-	get_sbefiles()
 	load_swapps()
 	load_app_perms()
 	save_app_perms()
 
 	try:
-		boot_app_name = cfg.get("sys", "boot-app", fallback="boot2")
-		if not boot_app_name:
-			raise Exception("Boot App not defined!")
+		boot_app_name = "boot2"
 		boot_app = installed_apps.get_app(boot_app_name)
 		if not boot_app:
 			raise Exception(f"Boot App {boot_app_name} not installed!")
