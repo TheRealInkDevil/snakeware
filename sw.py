@@ -1,7 +1,7 @@
 #core imports
 import sys, os, subprocess, threading
-import filecmp, shutil, tarfile, zipfile, pathlib
-import json, configparser, random, types
+import pathlib, tempfile, tarfile
+import json, types
 import importlib, importlib.util, inspect
 
 from xml.etree import ElementTree
@@ -248,6 +248,41 @@ def load_swapp(app_path: pathlib.Path):
 			if entry.tag == "Include":
 				app.page_includes.append(entry.attrib.get("appid"))
 	return SwResult(True, "app_loaded", app)
+
+def install_swapp(archive_path: pathlib.Path):
+	if not archive_path.is_file():
+		raise FileNotFoundError("Archive Path not exist.")
+	try:
+		with tarfile.open(archive_path, "r:xz") as archive:
+			try:
+				manifestinfo = archive.getmember("manifest.xml")
+				data = archive.extractfile(manifestinfo)
+				manifest = ElementTree.parse(data).getroot()
+				appidentity = manifest.find("Identity")
+				appname = appidentity.findtext("Name")
+				appver = appidentity.findtext("Version")
+				installpath = appdir / appname
+				prev_version = installed_apps.get_app(appname)
+				if prev_version and installpath.exists():
+					if appver < prev_version.version:
+						return SwResult(False, "outdated_version")
+					installpath.rmdir()
+				archive.extractall(installpath, filter="tar")
+				load = load_swapp(installpath)
+				if load:
+					installed = load.return_value
+					installed.db = installed_apps
+					installed_apps.update_app(installed)
+					return SwResult(True, "installed")
+				else:
+					return SwResult(False, "load_failed")
+			except KeyError:
+				return SwResult(False, "manifest_missing")
+	except tarfile.ReadError:
+		return SwResult(False, "read_fail")
+	except tarfile.CompressionError:
+		return SwResult(False, "compress_fail")
+	
 
 def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str):
 	entrypoint = app_meta.entrypoints.get(entrypoint_id)
@@ -503,8 +538,6 @@ if __name__ == "__main__":
 					if app.status == swapp.APPSTATUS_BACKGROUND:
 						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
 						break
-
-
 	except KeyboardInterrupt:
 		print("Interrupted.")
 		quit()

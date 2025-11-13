@@ -113,11 +113,20 @@ class AppDB:
     def __contains__(self, value):
         return value in self.apps or value in self.provided
     
+    def generate_provides(self):
+        self.provided.clear()
+        for app in self.apps.values():
+            for provide in app.provides:
+                self.provided.setdefault(provide, {}).update({app.name: app})
+
     def add_app(self, new_app: AppMetadata):
         if new_app.name not in self.apps:
             self.apps[new_app.name] = new_app
-        for provide in new_app.provides:
-            self.provided.setdefault(provide, {}).update({new_app.name: new_app})
+        self.generate_provides()
+    
+    def update_app(self, new_app: AppMetadata):
+        self.apps[new_app.name] = new_app
+        self.generate_provides()
     
     def resolve_app_name(self, name):
         for app in self.apps:
