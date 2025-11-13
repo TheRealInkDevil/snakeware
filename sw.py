@@ -20,6 +20,7 @@ storagedir: pathlib.Path = maindir.joinpath("storage")
 appstoragedir: pathlib.Path = storagedir.joinpath("app")
 sharedstoragedir: pathlib.Path = storagedir.joinpath("shared")
 apppermsfile: pathlib.Path = maindir.joinpath("app_permissions.priv")
+apppermsdetailsfile: pathlib.Path = maindir.joinpath("app_permission_details.json")
 userfile: pathlib.Path = maindir.joinpath("user.json")
 
 subprocs: list[dict] = []
@@ -450,6 +451,7 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 
 installed_apps: swapp.AppDB = swapp.AppDB()
 app_perms: dict = {}
+app_perm_details: dict = {}
 
 def load_swapps() -> None:
 	pth = appdir
@@ -481,6 +483,10 @@ def load_app_perms():
 	if apppermsfile.is_file():
 		with open(apppermsfile) as apfile:
 			app_perms.update(json.load(apfile))
+	if apppermsdetailsfile.is_file():
+		app_perm_details.clear()
+		with open(apppermsdetailsfile) as apfile:
+			app_perm_details.update(json.load(apfile))
 
 def save_app_perms():
 	with open(apppermsfile, "w") as apfile:
