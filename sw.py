@@ -1,6 +1,6 @@
 #core imports
 import sys, os, subprocess, threading
-import pathlib, tempfile, tarfile
+import pathlib, shutil, tarfile
 import json, types
 import importlib, importlib.util, inspect
 
@@ -140,6 +140,14 @@ def load_swapp(app_path: pathlib.Path):
 					app.provides.append(entry.attrib.get("appid"))
 					if not entry.attrib.get("nocompile"):
 						appnames.append(entry.attrib.get("appid"))
+	
+	permissions = manifest.find("Permissions")
+	if permissions is not None:
+		for entry in permissions:
+			if entry.tag == "Install":
+				app.permissions.setdefault("install", []).append(entry.attrib.get("permission"))
+			elif entry.tag == "Request":
+				app.permissions.setdefault("request", []).append(entry.attrib.get("permission"))
 
 	code = manifest.find("Modules")
 	if code is not None:
@@ -250,7 +258,7 @@ def load_swapp(app_path: pathlib.Path):
 				app.page_includes.append(entry.attrib.get("appid"))
 	return SwResult(True, "app_loaded", app)
 
-def install_swapp(archive_path: pathlib.Path):
+def install_swapp(archive_path: pathlib.Path, interactive: bool = True, accept_perms: bool = False):
 	if not archive_path.is_file():
 		raise FileNotFoundError("Archive Path not exist.")
 	try:
@@ -261,19 +269,43 @@ def install_swapp(archive_path: pathlib.Path):
 				manifest = ElementTree.parse(data).getroot()
 				appidentity = manifest.find("Identity")
 				appname = appidentity.findtext("Name")
+				appdname = appidentity.findtext("DisplayName")
 				appver = appidentity.findtext("Version")
+				apppermselement = manifest.find("Permissions")
+				appperms = []
+				if apppermselement is not None:
+					appperms = [p.attrib.get("permission") for p in apppermselement if p.tag == "Install"]
 				installpath = appdir / appname
 				prev_version = installed_apps.get_app(appname)
+				if interactive:
+					print(f"Install {appdname}? ({appname})")
+					if len(appperms) > 0:
+						print("It requires the following permissions:")
+						for perm in appperms:
+							details = app_perm_details.get(perm)
+							if details:
+								print(details.get("display-name", perm))
+							else:
+								print(perm)
+					installcheck = input("Install? [y/N] > ")
+					if not installcheck.lower().startswith("y"):
+						return SwResult(False, "user_canceled")
 				if prev_version and installpath.exists():
 					if appver < prev_version.version:
 						return SwResult(False, "outdated_version")
-					installpath.rmdir()
+					shutil.rmtree(installpath)
 				archive.extractall(installpath, filter="tar")
 				load = load_swapp(installpath)
 				if load:
 					installed = load.return_value
 					installed.db = installed_apps
 					installed_apps.update_app(installed)
+					if interactive:
+						app_perms.setdefault(appname, []).extend(appperms)
+						save_app_perms()
+					elif accept_perms:
+						app_perms.setdefault(appname, []).extend(appperms)
+						save_app_perms()
 					return SwResult(True, "installed")
 				else:
 					return SwResult(False, "load_failed")
@@ -498,6 +530,8 @@ if __name__ == "__main__":
 	load_swapps()
 	load_app_perms()
 	save_app_perms()
+
+	install_swapp(maindir / "library" / "snakeware.testapp.tar.xz")
 
 	try:
 		boot_app_name = "boot2"

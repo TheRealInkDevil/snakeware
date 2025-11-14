@@ -12,6 +12,7 @@ class AppMetadata:
         self.origin: str = origin
         self.page_includes: list[str] = []
         self.provides: list[str] = []
+        self.permissions: dict[str, list[str]] = {}
     
     def copy(self, *, include_entrypoints: bool = True, include_ref_types: bool = False):
         result = AppMetadata()
@@ -21,6 +22,9 @@ class AppMetadata:
         result.desc = self.desc
         result.origin = self.origin
         result.page_includes = self.page_includes.copy()
+        result.provides = self.provides.copy()
+        for perm in self.permissions:
+            result.permissions.update({perm: self.permissions[perm].copy()})
         if include_entrypoints:
             for key, value in self.entrypoints.items():
                 result.entrypoints.update({key: value.copy()})

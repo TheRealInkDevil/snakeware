@@ -13,6 +13,10 @@
         <App appid="boot2" />
     </Provides>
 
+    <Permissions>
+        <Install permission="fs.userdata.access"/>
+    </Permissions>
+
     <Entrypoints>
         <ClassEntry id="boot" class="snakeware.boot2.Boot2"/>
     </Entrypoints>
