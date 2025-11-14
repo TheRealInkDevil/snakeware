@@ -334,13 +334,17 @@ def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str):
 def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, event_id: int, event_data: dict = None):
 	event_data = event_data if event_data else {}
 	app_event: swapp.AppEvent = swapp.AppEvent(event_id, event_data)
+	def handle_generator(generator):
+		for signal in generator(app_event):
+			if inspect.isgeneratorfunction(signal):
+				handle_generator(signal)
+			elif type(signal) is swapp.signals.AppSignal:
+				sig_result = handle_swapp_signal(running_app, app_stack, signal, False)
+				if not sig_result:
+					break
 	try:
 		if inspect.isgeneratorfunction(running_app.app.ev_signal):
-			for signal in running_app.app.ev_signal(app_event):
-				if type(signal) is swapp.signals.AppSignal:
-					sig_result = handle_swapp_signal(running_app, app_stack, signal, False)
-					if not sig_result:
-						break
+			handle_generator(running_app.app.ev_signal)
 		else:
 			signal = running_app.app.ev_signal(app_event)
 			if type(signal) is swapp.signals.AppSignal:
@@ -530,8 +534,6 @@ if __name__ == "__main__":
 	load_swapps()
 	load_app_perms()
 	save_app_perms()
-
-	install_swapp(maindir / "library" / "snakeware.testapp.tar.xz")
 
 	try:
 		boot_app_name = "boot2"
