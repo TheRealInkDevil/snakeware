@@ -566,21 +566,21 @@ if __name__ == "__main__":
 		if system_config.get("verbose", False):
 			print("Checking for appdir...")
 		if system_config.get("appdir"):
-			appdir = pathlib.Path(system_config.get("appdir"))
+			appdir = pathlib.Path(system_config.get("appdir")).absolute()
 		if not appdir or not appdir.is_dir():
 			raise Exception("Self-test failed.")
 		
 		if system_config.get("verbose", False):
 			print("Checking for storagedir...")
 		if system_config.get("storagedir"):
-			storagedir = pathlib.Path(system_config.get("storagedir"))
+			storagedir = pathlib.Path(system_config.get("storagedir")).absolute()
 		if not storagedir or not storagedir.is_dir():
 			raise Exception("Self-test failed.")
 		
 		if system_config.get("verbose", False):
 			print("Checking for appstoragedir...")
 		if system_config.get("appstoragedir"):
-			appstoragedir = pathlib.Path(system_config.get("appstoragedir"))
+			appstoragedir = pathlib.Path(system_config.get("appstoragedir")).absolute()
 		if not appstoragedir or not appstoragedir.is_dir():
 			if system_config.get("verbose", False):
 				print("appstoragedir failed...using fallback")
@@ -589,7 +589,7 @@ if __name__ == "__main__":
 		if system_config.get("verbose", False):
 			print("Checking for sharedstoragedir...")
 		if system_config.get("sharedstoragedir"):
-			sharedstoragedir = pathlib.Path(system_config.get("sharedstoragedir"))
+			sharedstoragedir = pathlib.Path(system_config.get("sharedstoragedir")).absolute()
 		if not sharedstoragedir or not sharedstoragedir.is_dir():
 			if system_config.get("verbose", False):
 				print("sharedstoragedir failed...using fallback")
