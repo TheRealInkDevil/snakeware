@@ -48,13 +48,15 @@ class AppEntrypoint:
 
 class AppEvent:
     SNAKEWARE_BOOTUP = -1 # Boot App Startup
-    APP_STARTING = 0 # App Startup (before LC_ENTERING_FOREGROUND and LC_ENTERING_BACKGROUND)
-    APP_FRAME = 1 # App Frame (Foreground)
-    APP_FRAME_BACKGROUND = 2 # App Frame (Background)
+    APP_START = 0 # App Startup
+    APP_PROCESS = 1 # App Frame (Foreground+Active)
+    APP_INACTIVE_PROCESS = 2 # App Frame (Foreground+Inactive)
     APP_RESUMING = 3 # App is Resuming
     APP_SUSPENDING = 4 # App is Pausing (Suspending)
-    APP_ENTERING_BACKGROUND = 5 # App is entering background, leaving foreground
-    APP_ENTERING_FOREGROUND = 6 # App is entering foreground, leaving background
+    APP_DEACTIVATING = 5 # App is deactivating
+    APP_ACTIVATING = 6 # App is activating
+    APP_ENTERING_BACKGROUND = 7 # App will be destroyed and restarted in the background
+    APP_LEAVING_BACKGROUND = 8 # App will be destroyed and restarted in the foreground
 
     def __init__(self, type: int, data: dict):
         self.type: int = type
@@ -71,12 +73,11 @@ APPSTATUS_NONE = 000
 
 APPSTATUS_BOOTING = 100
 APPSTATUS_STARTING = 101
-APPSTATUS_ENTERING_FOREGROUND = 102
-APPSTATUS_FOREGROUND = 103
+APPSTATUS_ACTIVATING = 102
+APPSTATUS_ACTIVE = 103
 
-APPSTATUS_BACKGROUND_STARTING = 201
-APPSTATUS_ENTERING_BACKGROUND = 202
-APPSTATUS_BACKGROUND = 203
+APPSTATUS_DEACTIVATING = 202
+APPSTATUS_INACTIVE = 203
 
 APPSTATUS_EXITED_SUCCESS = 400
 APPSTATUS_EXITED_FAILURE = 401

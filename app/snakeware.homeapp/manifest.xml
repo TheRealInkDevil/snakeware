@@ -11,6 +11,10 @@
         <Module path="__init__.py"/>
     </Modules>
 
+    <Permissions>
+        <Install permission="fs.storage.app"/>
+    </Permissions>
+
     <Entrypoints>
         <ClassEntry id="launcher" class="snakeware.homeapp.HomeApp"/>
     </Entrypoints>

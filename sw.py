@@ -335,8 +335,10 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 	event_data = event_data if event_data else {}
 	app_event: swapp.AppEvent = swapp.AppEvent(event_id, event_data)
 	def handle_generator(generator):
-		for signal in generator(app_event):
+		for signal in generator:
 			if inspect.isgeneratorfunction(signal):
+				handle_generator(signal())
+			elif inspect.isgenerator(signal):
 				handle_generator(signal)
 			elif type(signal) is swapp.signals.AppSignal:
 				sig_result = handle_swapp_signal(running_app, app_stack, signal, False)
@@ -344,7 +346,7 @@ def call_swapp_event(running_app: swapp.RunningApp, app_stack: swapp.AppStack, e
 					break
 	try:
 		if inspect.isgeneratorfunction(running_app.app.ev_signal):
-			handle_generator(running_app.app.ev_signal)
+			handle_generator(running_app.app.ev_signal(app_event))
 		else:
 			signal = running_app.app.ev_signal(app_event)
 			if type(signal) is swapp.signals.AppSignal:
@@ -377,7 +379,7 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 				new_app = init_swapp(new_app_meta, new_app_entry)
 				new_app.status = swapp.APPSTATUS_STARTING
 				app_stack.add_to_stack(new_app)
-				running_app.status = swapp.APPSTATUS_ENTERING_BACKGROUND
+				running_app.status = swapp.APPSTATUS_DEACTIVATING
 				signal.success = True
 				return False
 			except:
@@ -396,6 +398,9 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			except:
 				signal.success = False
 		case swapp.signals.FS_GET_APPSTORAGE:
+			if "fs.storage.app" not in perms:
+				signal.success = False
+				return True
 			data_folder_name = running_app.app_metadata.name
 			data_folder = appstoragedir / data_folder_name
 			data_folder.mkdir(parents=True, exist_ok=True)
@@ -403,6 +408,9 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			signal.success = True
 			return True
 		case swapp.signals.FS_GET_SHAREDSTORAGE:
+			if "fs.storage.shared" not in perms:
+				signal.success = False
+				return True
 			data_folder = sharedstoragedir
 			data_folder.mkdir(parents=True, exist_ok=True)
 			signal.result.update({"folder": str(data_folder)})
@@ -415,6 +423,58 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			
 			signal.result.update({"file": userfile})
 			signal.success = True
+			return True
+		case swapp.signals.PERMISSIONS_TEST:
+			perms_to_test = []
+			if "perm" in signal.data:
+				perms_to_test.append(signal.data.get("perm"))
+			if "perms" in signal.data:
+				for perm in signal.data.get("perms", []):
+					perms_to_test.append(perm)
+			for p in perms_to_test:
+				if p not in perms:
+					signal.success = False
+					return True
+			signal.success = True
+			return True
+		case swapp.signals.PERMISSIONS_REQUEST | swapp.signals.PERMISSIONS_REQUEST_INSTALL:
+			requested_to_filter = []
+			requested_perms = []
+			if "perm" in signal.data:
+				requested_to_filter.append(signal.data.get("perm"))
+			if "perms" in signal.data:
+				for perm in signal.data.get("perms", []):
+					requested_to_filter.append(perm)
+			for filtered in requested_to_filter:
+				if filtered not in perms:
+					requested_perms.append(filtered)
+			allowed_perms = []
+			if signal.id == swapp.signals.PERMISSIONS_REQUEST_INSTALL:
+				allowed_perms.extend(running_app.app_metadata.permissions.get("install", []))
+			if signal.id == swapp.signals.PERMISSIONS_REQUEST:
+				allowed_perms.extend(running_app.app_metadata.permissions.get("request", []))
+			success = True
+			for requested in requested_perms:
+				if requested in allowed_perms:
+					perm_details = app_perm_details.get(requested)
+					if perm_details:
+						print(f"{running_app.app_metadata.display_name} ({running_app.app_metadata.name}) is requesting the following permission: {perm_details.get("display-name", requested)}")
+						install_check = input("Allow? [y/N]").lower()
+						if not install_check.startswith("y"):
+							success = False
+							break
+					else:
+						print(f"{running_app.app_metadata.display_name} ({running_app.app_metadata.name}) is requesting the following permission: {requested}")
+						install_check = input("Allow? [y/N]").lower()
+						if not install_check.startswith("y"):
+							success = False
+							break
+				else:
+					success = False
+					break
+			if success:
+				app_perms.setdefault(running_app.app_metadata.name, []).extend(requested_perms)
+				save_app_perms()
 			return True
 		case swapp.signals.APPDB_QUERY:
 			results = []
@@ -480,9 +540,9 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 				case _:
 					signal.success = False
 					return True
-
 		case _:
 			print(f"[!] snakeware: Unhandled Signal {signal.id} from {running_app.app_metadata.name}")
+			signal.success = False
 	return True
 
 installed_apps: swapp.AppDB = swapp.AppDB()
@@ -555,30 +615,30 @@ if __name__ == "__main__":
 						call_swapp_event(app, app_stack, swapp.AppEvent.SNAKEWARE_BOOTUP)
 						active_apps += 1
 					case swapp.APPSTATUS_STARTING:
-						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.APP_STARTING)
+						app.status = swapp.APPSTATUS_ACTIVATING
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_START)
 						active_apps += 1
-					case swapp.APPSTATUS_ENTERING_FOREGROUND:
-						app.status = swapp.APPSTATUS_FOREGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.APP_ENTERING_FOREGROUND)
+					case swapp.APPSTATUS_ACTIVATING:
+						app.status = swapp.APPSTATUS_ACTIVE
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_ACTIVATING)
 						active_apps += 1
-					case swapp.APPSTATUS_ENTERING_BACKGROUND:
-						app.status = swapp.APPSTATUS_BACKGROUND
-						call_swapp_event(app, app_stack, swapp.AppEvent.APP_ENTERING_BACKGROUND)
+					case swapp.APPSTATUS_DEACTIVATING:
+						app.status = swapp.APPSTATUS_INACTIVE
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_DEACTIVATING)
 						active_apps += 1
-					case swapp.APPSTATUS_FOREGROUND:
-						call_swapp_event(app, app_stack, swapp.AppEvent.APP_FRAME)
+					case swapp.APPSTATUS_ACTIVE:
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_PROCESS)
 						active_apps += 1
-					case swapp.APPSTATUS_BACKGROUND:
-						call_swapp_event(app, app_stack, swapp.AppEvent.APP_FRAME_BACKGROUND)
+					case swapp.APPSTATUS_INACTIVE:
+						call_swapp_event(app, app_stack, swapp.AppEvent.APP_INACTIVE_PROCESS)
 					case _:
 						to_cleanup.append(app)
 			for clean in to_cleanup:
 				app_stack.running.remove(clean)
 			if active_apps < 1:
 				for app in reversed(app_stack.running):
-					if app.status == swapp.APPSTATUS_BACKGROUND:
-						app.status = swapp.APPSTATUS_ENTERING_FOREGROUND
+					if app.status == swapp.APPSTATUS_INACTIVE:
+						app.status = swapp.APPSTATUS_ACTIVATING
 						break
 	except KeyboardInterrupt:
 		print("Interrupted.")

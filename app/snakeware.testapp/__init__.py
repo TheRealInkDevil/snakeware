@@ -6,7 +6,7 @@ class TestingApp(swapp.App):
 
     def ev_signal(self, event):
         match event.type:
-            case swapp.AppEvent.APP_FRAME:
+            case swapp.AppEvent.APP_PROCESS:
                 buttons = []
                 def create_button(act, label):
                     buttons.append(act)

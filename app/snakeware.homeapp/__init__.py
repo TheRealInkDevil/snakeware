@@ -1,5 +1,4 @@
 import swapp, swapp.signals, json, pathlib
-from snakeware.apis.user import SwUser
 
 class HomeApp(swapp.App):
     def __init__(self, entrypoint):
@@ -7,43 +6,63 @@ class HomeApp(swapp.App):
         self.current_page = "home"
         self.recent_apps = []
 
+    def _get_storage_dir(self):
+        storage_dir_access_test = swapp.signals.AppSignal(swapp.signals.PERMISSIONS_TEST, {"perm": "fs.storage.app"})
+        yield storage_dir_access_test
+        if storage_dir_access_test.success:
+            storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
+            yield storage_dir_signal
+            if storage_dir_signal.success:
+                return pathlib.Path(storage_dir_signal.result.get("folder"))
+        else:
+            storage_dir_request = swapp.signals.AppSignal(swapp.signals.PERMISSIONS_REQUEST_INSTALL, {"perm": "fs.storage.app"})
+            yield storage_dir_request
+            if storage_dir_request.success:
+                storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
+                yield storage_dir_signal
+                if storage_dir_signal.success:
+                    return pathlib.Path(storage_dir_signal.result.get("folder"))
+            else:
+                return None
+
     def _read_state_files(self):
-        storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
-        yield storage_dir_signal
-        if storage_dir_signal.success:
-            storage_dir = pathlib.Path(storage_dir_signal.result.get("folder"))
-            recentsfile = storage_dir.joinpath("recentapps.json")
-            if recentsfile.is_file():
-                with open(recentsfile) as recentsf:
-                    try:
-                        self.recent_apps = json.load(recentsf)
-                    except Exception as e:
-                        self.recent_apps = []
+        storage_dir = yield from self._get_storage_dir()
+        if not storage_dir:
+            self.recent_apps = []
+            return
+        recentsfile = storage_dir.joinpath("recentapps.json")
+        if recentsfile.is_file():
+            with open(recentsfile) as recentsf:
+                try:
+                    self.recent_apps = json.load(recentsf)
+                except Exception as e:
+                    self.recent_apps = []
+        else:
+            self.recent_apps = []
 
     def _save_state_files(self):
-        storage_dir_signal = swapp.signals.AppSignal(swapp.signals.FS_GET_APPSTORAGE)
-        yield storage_dir_signal
-        if storage_dir_signal.success:
-            storage_dir = pathlib.Path(storage_dir_signal.result.get("folder"))
-            recentsfile = storage_dir.joinpath("recentapps.json")
-            with open(recentsfile, "w") as recentsf:
-                try:
-                    json.dump(self.recent_apps, recentsf)
-                except Exception as e:
-                    print(e)
+        storage_dir = yield from self._get_storage_dir()
+        if not storage_dir:
+            return
+        recentsfile = storage_dir.joinpath("recentapps.json")
+        with open(recentsfile, "w") as recentsf:
+            try:
+                json.dump(self.recent_apps, recentsf)
+            except Exception as e:
+                print(e)
 
     def ev_signal(self, event):
         match event.type:
-            case swapp.AppEvent.APP_ENTERING_FOREGROUND:
+            case swapp.AppEvent.APP_ACTIVATING:
                 self.current_page = "home"
                 #for sig in self._read_state_files():
                     #yield sig
                 yield self._read_state_files()
-            case swapp.AppEvent.APP_ENTERING_BACKGROUND:
+            case swapp.AppEvent.APP_DEACTIVATING:
                 #for sig in self._save_state_files():
                     #yield sig
                 yield self._save_state_files()
-            case swapp.AppEvent.APP_FRAME:
+            case swapp.AppEvent.APP_PROCESS:
                 buttons = []
                 def create_button(act, label):
                     buttons.append(act)
