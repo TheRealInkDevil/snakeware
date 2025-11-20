@@ -561,6 +561,40 @@ if __name__ == "__main__":
 		print("Loading system config...")
 		load_system_config(systemconfigfile)
 
+		print("Running self-test...")
+
+		if system_config.get("verbose", False):
+			print("Checking for appdir...")
+		if system_config.get("appdir"):
+			appdir = pathlib.Path(system_config.get("appdir"))
+		if not appdir or not appdir.is_dir():
+			raise Exception("Self-test failed.")
+		
+		if system_config.get("verbose", False):
+			print("Checking for storagedir...")
+		if system_config.get("storagedir"):
+			storagedir = pathlib.Path(system_config.get("storagedir"))
+		if not storagedir or not storagedir.is_dir():
+			raise Exception("Self-test failed.")
+		
+		if system_config.get("verbose", False):
+			print("Checking for appstoragedir...")
+		if system_config.get("appstoragedir"):
+			appstoragedir = pathlib.Path(system_config.get("appstoragedir"))
+		if not appstoragedir or not appstoragedir.is_dir():
+			if system_config.get("verbose", False):
+				print("appstoragedir failed...using fallback")
+			appstoragedir = storagedir.joinpath("app")
+		
+		if system_config.get("verbose", False):
+			print("Checking for sharedstoragedir...")
+		if system_config.get("sharedstoragedir"):
+			sharedstoragedir = pathlib.Path(system_config.get("sharedstoragedir"))
+		if not sharedstoragedir or not sharedstoragedir.is_dir():
+			if system_config.get("verbose", False):
+				print("sharedstoragedir failed...using fallback")
+			sharedstoragedir = storagedir.joinpath("shared")
+
 		if system_config.get("verbose", False):
 			print("Loading apps...")
 		load_swapps()
