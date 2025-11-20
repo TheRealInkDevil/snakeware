@@ -14,5 +14,4 @@ Snakeware only requires a functioning installation of Python.
 - Implement installing and removing swapps
 - Move the builtin swapps to their own repos
 - Allow apps to have code entrypoints
-- Completely decouple gbe-fork and Steamless
 - Add a good update system
