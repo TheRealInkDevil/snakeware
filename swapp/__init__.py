@@ -63,7 +63,7 @@ class AppEvent:
         self.data: dict = data.copy() if data else dict()
 
 class App:
-    def __init__(self, entrypoint):
+    def __init__(self, entrypoint, *args):
         pass
 
     def ev_signal(self, event: AppEvent):

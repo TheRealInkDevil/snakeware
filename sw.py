@@ -1,12 +1,13 @@
 #core imports
 import sys, os, subprocess, threading
 import pathlib, shutil, tarfile
-import json, types
+import json, types, tomllib
 import importlib, importlib.util, inspect
 
 from xml.etree import ElementTree
-#define core directory
+#define core directory and system config file
 maindir: pathlib.Path = pathlib.Path(__file__).parent
+systemconfigfile: pathlib.Path = maindir.joinpath("sw.cfg")
 if __name__ == "__main__":
 	os.chdir(maindir)
 sys.path.append(str(maindir))
@@ -21,9 +22,13 @@ appstoragedir: pathlib.Path = storagedir.joinpath("app")
 sharedstoragedir: pathlib.Path = storagedir.joinpath("shared")
 apppermsfile: pathlib.Path = maindir.joinpath("app_permissions.priv")
 apppermsdetailsfile: pathlib.Path = maindir.joinpath("app_permission_details.json")
-userfile: pathlib.Path = maindir.joinpath("user.json")
 
-subprocs: list[dict] = []
+system_config: dict = {}
+installed_apps: swapp.AppDB = swapp.AppDB()
+app_perms: dict = {}
+app_perm_details: dict = {}
+
+SWAPP_SDK_CURRENT_VERSION = 1
 
 class SwResult:
 	def __init__(self, success: bool, result_code: str, return_value = None, exception: Exception = None):
@@ -35,37 +40,6 @@ class SwResult:
 	def __bool__(self):
 		return self.success
 
-def reg_subproc(proc: subprocess.Popen, name: str, type: str):
-	def wait_for_subproc(p: dict):
-		pr = p.get("proc")
-		pr.wait()
-		subprocs.remove(p)
-
-	newproc = {"proc": proc, "name": name, "type": type}
-	subprocs.append(newproc)
-	threading.Thread(target=wait_for_subproc,args=[newproc], daemon=True).start()
-
-def stop_subprocs(no_escape: bool = True, force: bool = False):
-	exit_procs = True
-	if not force:
-		if len(subprocs) > 0:
-			if no_escape:
-				print("Some processes are still running!\nTo minimize data loss and lingering processes, please exit the processes before force quitting.")
-				input("Press enter to force quit processes > ")
-				exit_procs = True
-			else:
-				print("Some processes are still running!\nTo minimize data loss and lingering processes, please exit the processes before force quitting.\nWould you like to force quit anyway? (y/N)")
-				exit_procs = input().lower().startswith("y")
-		else:
-			return True
-	else:
-		exit_procs = True
-	if exit_procs:
-		for proc in subprocs.copy():
-			print(f"Trying to kill {proc.get('name')}...\n(if it lingers you will have to kill it yourself!)")
-			proc.get("proc").kill()
-	return exit_procs
-
 def quit():
 	sys.exit(0)
 
@@ -76,8 +50,6 @@ def number_input(ask: str) -> int:
 			return int(input(ask))
 		except ValueError:
 			print("that's not a number, try again.")
-
-SWAPP_SDK_CURRENT_VERSION = 1
 
 def get_value_of_path(pypath: str):
 	to_dig = pypath.split(".")
@@ -317,13 +289,14 @@ def install_swapp(archive_path: pathlib.Path, interactive: bool = True, accept_p
 		return SwResult(False, "compress_fail")
 	
 
-def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str):
+def init_swapp(app_meta: swapp.AppMetadata, entrypoint_id: str, passed_args: list | None = None):
+	args = passed_args.copy() if passed_args else []
 	entrypoint = app_meta.entrypoints.get(entrypoint_id)
 	if not entrypoint:
 		raise Exception(f"Entrypoint {entrypoint_id} Not Found for app {app_meta.name}")
 	match entrypoint.entry_type:
 		case swapp.AppEntrypoint.CLASS_ENTRY:
-			app: swapp.App = entrypoint.data(entrypoint_id)
+			app: swapp.App = entrypoint.data(entrypoint_id, *args)
 			running_app: swapp.RunningApp = swapp.RunningApp(app, app_meta)
 			return running_app
 		case swapp.AppEntrypoint.FUNC_ENTRY:
@@ -374,9 +347,10 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 		case swapp.signals.APP_OPEN:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
+			new_app_args = signal.data.get("args", []) if type(signal.data.get("args", [])) is list else []
 			new_app_meta = installed_apps.get_app(new_app_name)
 			try:
-				new_app = init_swapp(new_app_meta, new_app_entry)
+				new_app = init_swapp(new_app_meta, new_app_entry, new_app_args)
 				new_app.status = swapp.APPSTATUS_STARTING
 				app_stack.add_to_stack(new_app)
 				running_app.status = swapp.APPSTATUS_DEACTIVATING
@@ -416,14 +390,6 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			signal.result.update({"folder": str(data_folder)})
 			signal.success = True
 			return True
-		case swapp.signals.FS_GET_USERDATA_FILE:
-			if "fs.userdata.access" not in perms:
-				signal.success = False
-				return True
-			
-			signal.result.update({"file": userfile})
-			signal.success = True
-			return True
 		case swapp.signals.PERMISSIONS_TEST:
 			perms_to_test = []
 			if "perm" in signal.data:
@@ -459,13 +425,13 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 					perm_details = app_perm_details.get(requested)
 					if perm_details:
 						print(f"{running_app.app_metadata.display_name} ({running_app.app_metadata.name}) is requesting the following permission: {perm_details.get("display-name", requested)}")
-						install_check = input("Allow? [y/N]").lower()
+						install_check = input("Allow? [y/N] > ").lower()
 						if not install_check.startswith("y"):
 							success = False
 							break
 					else:
 						print(f"{running_app.app_metadata.display_name} ({running_app.app_metadata.name}) is requesting the following permission: {requested}")
-						install_check = input("Allow? [y/N]").lower()
+						install_check = input("Allow? [y/N] > ").lower()
 						if not install_check.startswith("y"):
 							success = False
 							break
@@ -545,10 +511,6 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			signal.success = False
 	return True
 
-installed_apps: swapp.AppDB = swapp.AppDB()
-app_perms: dict = {}
-app_perm_details: dict = {}
-
 def load_swapps() -> None:
 	pth = appdir
 	installed_apps.apps.clear()
@@ -588,19 +550,34 @@ def save_app_perms():
 	with open(apppermsfile, "w") as apfile:
 		json.dump(app_perms, apfile)
 
+def load_system_config(path: pathlib.Path):
+	system_config.clear()
+	with open(path, "rb") as sysconfig:
+		system_config.update(tomllib.load(sysconfig).get("system", {}))
+
 if __name__ == "__main__":
-	print("Starting Snakeware 3.0...")
-
-	load_swapps()
-	load_app_perms()
-	save_app_perms()
-
 	try:
-		boot_app_name = "boot2"
+		print("Starting Snakeware 3.0...")
+		print("Loading system config...")
+		load_system_config(systemconfigfile)
+
+		if system_config.get("verbose", False):
+			print("Loading apps...")
+		load_swapps()
+		if system_config.get("verbose", False):
+			print("Loading app permissions...")
+		load_app_perms()
+
+		boot_app_name = system_config.get("boot-app") if system_config.get("boot-app") else "boot2"
+		if system_config.get("verbose", False):
+			print(f"Fetching boot app {boot_app_name}...")
 		boot_app = installed_apps.get_app(boot_app_name)
 		if not boot_app:
 			raise Exception(f"Boot App {boot_app_name} not installed!")
 	
+		if system_config.get("verbose", False):
+			print(f"Starting boot app {boot_app_name}...")
+
 		app_stack: swapp.AppStack = swapp.AppStack()
 		boot_run = init_swapp(boot_app, "boot")
 		boot_run.status = swapp.APPSTATUS_BOOTING

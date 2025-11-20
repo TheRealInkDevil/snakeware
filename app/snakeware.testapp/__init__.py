@@ -1,7 +1,7 @@
 import swapp, swapp.signals
 
 class TestingApp(swapp.App):
-    def __init__(self, entrypoint):
+    def __init__(self, entrypoint, *args):
         super().__init__(entrypoint)
 
     def ev_signal(self, event):

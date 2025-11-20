@@ -1,7 +1,7 @@
 import swapp, swapp.signals, json, pathlib
 
 class HomeApp(swapp.App):
-    def __init__(self, entrypoint):
+    def __init__(self, entrypoint, *args):
         super().__init__(entrypoint)
         self.current_page = "home"
         self.recent_apps = []

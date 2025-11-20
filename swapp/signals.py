@@ -9,10 +9,9 @@ APP_REPLACE = 202 # App requests an app to be replaced with this one
 APPDB_QUERY = 300
 FS_GET_APPSTORAGE = 400 # Get app storage directory (requires 'fs.storage.app')
 FS_GET_SHAREDSTORAGE = 401 # Get shared storage directory (requires 'fs.storage.shared')
-FS_GET_USERDATA_FILE = 402 # Get path to userdata file (requires 'fs.userdata.access')
 PERMISSIONS_TEST = 500 # Test if the running app has a permission
 PERMISSIONS_REQUEST = 501 # Request a permission be granted to the running app
-PERMISSIONS_REQUEST_INSTALL = 501 # Request a permission be granted to the running app that was supposed to be granted on installation
+PERMISSIONS_REQUEST_INSTALL = 502 # Request a permission be granted to the running app that was supposed to be granted on installation
 
 class AppSignal(Exception):
     def __init__(self, id: int, data: dict = None):
