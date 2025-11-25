@@ -11,7 +11,9 @@ Snakeware is an app runtime.
 Snakeware only requires a functioning installation of Python.
 
 ## TODO
-- Implement installing and removing swapps
-- Move the builtin swapps to their own repos
+- Implement removing apps
+- Improve installation of apps
+- Move builtin apps to their own repos
 - Allow apps to have code entrypoints
+- Maybe get an app switcher working
 - Add a good update system
