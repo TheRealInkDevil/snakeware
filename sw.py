@@ -343,7 +343,23 @@ def handle_swapp_signal(running_app: swapp.RunningApp, app_stack: swapp.AppStack
 			running_app.status = swapp.APPSTATUS_EXITED_FAILURE
 			signal.success = True
 			return False
-		case swapp.signals.APP_OPEN:
+		case swapp.signals.ACTIVATE:
+			if running_app.status == swapp.APPSTATUS_DEACTIVATING or running_app.status == swapp.APPSTATUS_INACTIVE:
+				running_app.status = swapp.APPSTATUS_ACTIVATING
+				signal.success = True
+				return False
+			else:
+				signal.success = False
+				return True
+		case swapp.signals.DEACTIVATE:
+			if running_app.status == swapp.APPSTATUS_ACTIVATING or running_app.status == swapp.APPSTATUS_ACTIVE:
+				running_app.status = swapp.APPSTATUS_DEACTIVATING
+				signal.success = True
+				return False
+			else:
+				signal.success = False
+				return True
+		case swapp.signals.APP_START:
 			new_app_name = signal.data.get("target")
 			new_app_entry = signal.data.get("entry", "main")
 			new_app_args = signal.data.get("args", []) if type(signal.data.get("args", [])) is list else []

@@ -1,7 +1,9 @@
 EXIT_SUCCESS = 100 # App is gracefully exiting.
 EXIT_FAILURE = 101 # App is exiting due to failiure.
-APP_OPEN = 201 # App requests a new app be switched to, starting it if it wasn't already running.
-APP_REPLACE = 202 # App requests an app to be replaced with this one
+ACTIVATE = 102 # App is requsting activation.
+DEACTIVATE = 103 # App is requesting deactivation
+APP_START = 201 # App requests a new app be started and made active.
+APP_REPLACE = 202 # App requests an app to be replaced with this one.
 # Query the AppDB
 # Data: "type" - type of query ['any', 'exact', 'all-apps']; "name" - name to query
 # Result: "apps" - array of resulting apps in the form of AppDict

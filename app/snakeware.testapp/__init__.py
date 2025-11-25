@@ -22,7 +22,7 @@ class TestingApp(swapp.App):
                         int_input = int(str_input)
                         action = buttons[int_input-1]
                         if action[0] == "open_app":
-                            open_app_signal = swapp.signals.AppSignal(swapp.signals.APP_OPEN, {"target": action[1]})
+                            open_app_signal = swapp.signals.AppSignal(swapp.signals.APP_START, {"target": action[1]})
                             yield open_app_signal
                             if not open_app_signal.success:
                                 print("Could not open app. Very sad.")
