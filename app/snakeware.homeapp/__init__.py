@@ -68,12 +68,13 @@ class HomeApp(swapp.App):
                     buttons.append(act)
                     print(f"[{len(buttons)}] {label}")
                     return len(buttons)
+                print("- Snakeware Home -")
                 match self.current_page:
                     case "home":
                         print("Recent Apps:")
                         for pin in self.recent_apps:
                             create_button(("open_app", pin.get("name", "<name>")), pin.get("dname", "<dname>"))
-                        print("- -")
+                        print("")
                         create_button(("switch_page", "all-apps"), "View all Apps")
                         create_button(("shutdown",), "Quit")
                     case "all-apps":
@@ -87,6 +88,9 @@ class HomeApp(swapp.App):
                                 if "main" in pin.get("entries", []):
                                     create_button(("open_app_w_dname", pin.get("name", "<name>"), pin.get("dname", "<dname>")), pin.get("dname", "<dname>"))
                             create_button(("switch_page", "home"), "Back")
+                    case _:
+                        print("Invalid Page!")
+                        raise swapp.signals.AppSignal(swapp.signals.EXIT_FAILURE)
 
                 if len(buttons) > 0:
                     str_input = input("> ")

@@ -13,6 +13,7 @@ class TestingApp(swapp.App):
                     print(f"[{len(buttons)}] {label}")
                     return len(buttons)
 
+                print("- Snakeware Test App -")
                 print("Wow we can switch apps!")
                 create_button(("shutdown",), "Back")
 

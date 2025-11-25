@@ -279,6 +279,7 @@ def install_swapp(archive_path: pathlib.Path, interactive: bool = True, accept_p
 						save_app_perms()
 					return SwResult(True, "installed")
 				else:
+					shutil.rmtree(installpath)
 					return SwResult(False, "load_failed")
 			except KeyError:
 				return SwResult(False, "manifest_missing")
