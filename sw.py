@@ -190,6 +190,7 @@ def load_swapp(app_path: pathlib.Path):
 						modnames.append(mod_name)
 		except Exception as e:
 			fail = e
+			return SwResult(False, "app_module_import_exception", None, fail)
 		else:
 			mod_to_clean.clear()
 			for modd in mods_to_dummy:
@@ -207,8 +208,6 @@ def load_swapp(app_path: pathlib.Path):
 					sys.path.remove(pth)
 				except:
 					pass
-			if fail:
-				return SwResult(False, "app_module_import_exception", None, fail)
 	entrypoints = manifest.find("Entrypoints")
 	if entrypoints is not None:
 		for entry in entrypoints:
