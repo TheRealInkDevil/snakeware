@@ -596,7 +596,7 @@ if __name__ == "__main__":
 			print("Checking for appstoragedir...")
 		if system_config.get("appstoragedir"):
 			appstoragedir = pathlib.Path(system_config.get("appstoragedir")).resolve()
-		if not appstoragedir or not appstoragedir.is_dir():
+		if not appstoragedir:
 			if system_config.get("verbose", False):
 				print("appstoragedir failed...using fallback")
 			appstoragedir = storagedir.joinpath("app")
@@ -605,7 +605,7 @@ if __name__ == "__main__":
 			print("Checking for sharedstoragedir...")
 		if system_config.get("sharedstoragedir"):
 			sharedstoragedir = pathlib.Path(system_config.get("sharedstoragedir")).resolve()
-		if not sharedstoragedir or not sharedstoragedir.is_dir():
+		if not sharedstoragedir:
 			if system_config.get("verbose", False):
 				print("sharedstoragedir failed...using fallback")
 			sharedstoragedir = storagedir.joinpath("shared")
